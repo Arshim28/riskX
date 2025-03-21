@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
-from ..utils.logging import ForensicLogger, get_logger
+from utils.logging import ForensicLogger, get_logger
 
 class AgentState(BaseModel):
 	goto: Optional[str] = None

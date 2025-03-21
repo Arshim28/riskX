@@ -1,0 +1,46 @@
+app:
+  name: "Financial Forensic Analysis"
+  debug: true
+  log_level: "INFO"
+  log_dir: "logs"
+
+document_processor:
+  chunk_size: 10000
+  chunk_overlap: 500
+
+ocr:
+  model: "mistral-ocr-latest"
+  image_limit: 15
+  include_image_base64: true
+
+
+embedding:
+  provider: "google"
+  model: "gemini-embedding-exp-03-07"
+  dimension: 3072
+  batch_size: 10
+  request_delay: 0.5
+  retry_max_attempts: 5
+  retry_base_delay: 1
+  max_tokens: 8000
+
+vector_store:
+  index_type: "Flat"  
+  metric: "cosine"    
+  nlist: 100          
+  nprobe: 10          
+  ef_construction: 200 
+  ef_search: 50       
+  m: 16               
+
+ocr_vector_store:
+  index_type: "Flat"
+  chunk_size: 10000
+  chunk_overlap: 500
+  max_chunks_per_batch: 50
+
+rag_agent:
+  retrieval_k: 5
+  reranking_enabled: false
+  prompt_template: "prompts/rag_agent/qa_template.txt"
+  max_input_tokens: 4000
