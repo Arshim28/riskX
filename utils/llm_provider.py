@@ -6,7 +6,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 
 
-ProviderType = Literal["google", "anthropic"]
+ProviderType = Literal[
+    "google", "anthropic", "openai", "azure_openai", "cohere", 
+    "google_vertexai", "fireworks", "ollama", "together", 
+    "mistralai", "huggingface", "groq", "bedrock", 
+    "dashscope", "xai", "deepseek", "litellm", "gigachat"
+]
 ModelType = Dict[str, Any]
 
 
@@ -25,15 +30,91 @@ class LLMProvider:
         provider = self.config.get("provider", "google")
         temperature = self.config.get("temperature", 0.1)
         
-        if provider == "google":
-            llm = ChatGoogleGenerativeAI(model=selected_model, temperature=temperature)
-        elif provider == "anthropic":
-            llm = ChatAnthropic(model=selected_model, temperature=temperature)
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
-        
+        llm = self._create_llm(provider, selected_model, temperature)
         self.models[selected_model] = llm
         return llm
+    
+    def _create_llm(self, provider: str, model: str, temperature: float) -> ModelType:
+        kwargs = {"model": model, "temperature": temperature}
+        
+        if provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(**kwargs)
+        
+        elif provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(**kwargs)
+        
+        elif provider == "openai":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(**kwargs)
+        
+        elif provider == "azure_openai":
+            from langchain_openai import AzureChatOpenAI
+            return AzureChatOpenAI(azure_deployment=model, **kwargs)
+        
+        elif provider == "cohere":
+            from langchain_cohere import ChatCohere
+            return ChatCohere(**kwargs)
+        
+        elif provider == "google_vertexai":
+            from langchain_google_vertexai import ChatVertexAI
+            return ChatVertexAI(**kwargs)
+        
+        elif provider == "fireworks":
+            from langchain_fireworks import ChatFireworks
+            return ChatFireworks(**kwargs)
+        
+        elif provider == "ollama":
+            from langchain_ollama import ChatOllama
+            return ChatOllama(base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"), **kwargs)
+        
+        elif provider == "together":
+            from langchain_together import ChatTogether
+            return ChatTogether(**kwargs)
+        
+        elif provider == "mistralai":
+            from langchain_mistralai import ChatMistralAI
+            return ChatMistralAI(**kwargs)
+        
+        elif provider == "huggingface":
+            from langchain_huggingface import ChatHuggingFace
+            return ChatHuggingFace(model_id=model, **{k: v for k, v in kwargs.items() if k != "model"})
+        
+        elif provider == "groq":
+            from langchain_groq import ChatGroq
+            return ChatGroq(**kwargs)
+        
+        elif provider == "bedrock":
+            from langchain_aws import ChatBedrock
+            return ChatBedrock(model_id=model, model_kwargs={k: v for k, v in kwargs.items() if k != "model"})
+        
+        elif provider == "dashscope":
+            from langchain_dashscope import ChatDashScope
+            return ChatDashScope(**kwargs)
+        
+        elif provider == "xai":
+            from langchain_xai import ChatXAI
+            return ChatXAI(**kwargs)
+        
+        elif provider == "deepseek":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                openai_api_base='https://api.deepseek.com',
+                openai_api_key=os.environ.get("DEEPSEEK_API_KEY"),
+                **kwargs
+            )
+        
+        elif provider == "litellm":
+            from langchain_community.chat_models.litellm import ChatLiteLLM
+            return ChatLiteLLM(**kwargs)
+        
+        elif provider == "gigachat":
+            from langchain_gigachat.chat_models import GigaChat
+            return GigaChat(**{k: v for k, v in kwargs.items() if k != "model"})
+        
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_text(self, 
