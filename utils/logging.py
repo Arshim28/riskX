@@ -69,8 +69,19 @@ def setup_logging(name: str = "forensic", log_dir: str = "logs", level: int = lo
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
+    global _main_logger
+    
     if _main_logger is None:
-        raise RuntimeError("Logging not initialized. Call setup_logging first.")
+        # If no main logger exists yet, create a simple console logger
+        # This allows modules to get loggers at import time
+        console_logger = logging.getLogger(name if name else "default")
+        if not console_logger.handlers:  # Only add handler if not already present
+            console_logger.setLevel(logging.INFO)
+            handler = logging.StreamHandler(sys.stdout)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            console_logger.addHandler(handler)
+        return console_logger
         
     if name is None:
         return _main_logger.get_logger()

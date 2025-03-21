@@ -7,15 +7,8 @@ from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from base.base_tools import BaseTool, ToolResult
-from tools.ocr_tool import OcrTool
-from tools.embedding_tool import EmbeddingTool
 from utils.logging import get_logger
-
-
-class TextChunk(BaseModel):
-    text: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    embedding: Optional[List[float]] = None
+from utils.text_chunk import TextChunk
 
 
 class DocumentProcessorConfig(BaseModel):
@@ -29,6 +22,11 @@ class DocumentProcessorTool(BaseTool):
     def __init__(self, config: Dict[str, Any]):
         self.config = DocumentProcessorConfig(**config.get("document_processor", {}))
         self.logger = get_logger(self.name)
+        
+        # Import tools here to avoid circular imports
+        from tools.ocr_tool import OcrTool
+        from tools.embedding_tool import EmbeddingTool
+        
         self.ocr_tool = OcrTool(config.get("ocr", {}))
         self.embedding_tool = EmbeddingTool(config.get("embedding", {}))
     
@@ -212,7 +210,7 @@ class DocumentProcessorTool(BaseTool):
             chunks = await self.process_pdf(pdf_path)
             self.logger.info(f"Created {len(chunks)} chunks from {pdf_path}")
             
-            chunks_data = [chunk.model_dump() for chunk in chunks]
+            chunks_data = [chunk.to_dict() for chunk in chunks]
             
             result = {
                 "pdf_path": pdf_path,
