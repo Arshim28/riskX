@@ -5,7 +5,9 @@ import json
 from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 import asyncio
 from pydantic import BaseModel, Field
+
 from tenacity import retry, stop_after_attempt, wait_exponential
+import faiss
 
 from base.base_tools import BaseTool, ToolResult
 from utils.logging import get_logger

@@ -132,14 +132,46 @@ class OcrTool(BaseTool):
             
             self.logger.info("Successfully processed document with OCR")
             
-            self.pages = response.pages
-            self.usage_info = response.usage_info
+            # Convert API response objects to format expected by Pydantic models
+            pydantic_pages = []
+            for page in response.pages:
+                # Convert images list
+                images = [ImageData(
+                    id=img.id,
+                    top_left_x=img.top_left_x,
+                    top_left_y=img.top_left_y,
+                    bottom_right_x=img.bottom_right_x,
+                    bottom_right_y=img.bottom_right_y,
+                    image_base64=img.image_base64
+                ) for img in page.images]
+                
+                # Create Page object
+                pydantic_page = Page(
+                    index=page.index,
+                    markdown=page.markdown,
+                    images=images,
+                    dimensions=Dimensions(
+                        dpi=page.dimensions.dpi,
+                        height=page.dimensions.height,
+                        width=page.dimensions.width
+                    )
+                )
+                pydantic_pages.append(pydantic_page)
+            
+            # Create UsageInfo object
+            usage = UsageInfo(
+                pages_processed=response.usage_info.pages_processed,
+                doc_size_bytes=response.usage_info.doc_size_bytes
+            )
+            
+            self.pages = pydantic_pages
+            self.usage_info = usage
             self.model = response.model
             
             return OcrResponse(
-                pages=self.pages,
+                pages=pydantic_pages,
                 model=self.model,
-                usage_info=self.usage_info
+                usage_info=usage
             )
         except Exception as e:
             self.logger.error(f"Error processing OCR: {e}")
