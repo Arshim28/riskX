@@ -1,0 +1,14 @@
+Company: {{ company }}
+Number of Analyzed Events: {{ num_events }}
+
+Event Synthesis:
+{{ events_synthesis }}
+
+{% if guidance %}
+Analysis Guidance:
+{{ guidance }}
+{% else %}
+No specific guidance provided
+{% endif %}
+
+Generate a comprehensive forensic assessment of {{ company }}.

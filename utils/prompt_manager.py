@@ -73,67 +73,18 @@ class PromptManager:
         try:
             human_rendered = human_template.render(**params.variables)
             system_rendered = system_template.render(**params.variables)
-            return (human_rendered, system_rendered)
+            return (system_rendered, human_rendered)
         except Exception as e:
             logger.error(f"Error rendering template {params.agent_name}/{params.operation}: {e}")
             return None
     
-    def get_prompt(self, agent_name: Optional[str] = None, operation: Optional[str] = None, 
-                  variables: Optional[Dict[str, Any]] = None, params: Optional[PromptParams] = None) -> Optional[Tuple[str, str]]:
-        if params is None:
-            if agent_name is None:
-                logger.error("No agent name or params provided to get_prompt")
-                return None
-            params = PromptParams(
-                agent_name=agent_name,
-                operation=operation or "system",
-                variables=variables or {}
-            )
+    def get_prompt(self, agent_name: str, operation: str, 
+                  variables: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str]]:
+        
+        params = PromptParams(
+            agent_name=agent_name,
+            operation=operation,
+            variables=variables or {}
+        )
         
         return self.render_template(params)
-    
-    def create_template(self, agent_name: str, operation: str, content: str) -> bool:
-        agent_dir = self.prompt_dir / agent_name
-        
-        try:
-            agent_dir.mkdir(exist_ok=True, parents=True)
-            logger.info(f"Created agent directory: {agent_dir}")
-        except Exception as e:
-            logger.error(f"Error creating agent directory {agent_dir}: {e}")
-            
-            try:
-                flat_template_path = self.prompt_dir / f"{agent_name}_{operation}.j2"
-                flat_template_path.write_text(content)
-                logger.info(f"Created template file (flat structure): {flat_template_path}")
-                return True
-            except Exception as e2:
-                logger.error(f"Error creating template file {flat_template_path}: {e2}")
-                return False
-        
-        template_path = agent_dir / f"{operation}.j2"
-        
-        try:
-            template_path.write_text(content)
-            logger.info(f"Created template file: {template_path}")
-            
-            template_key = f"{agent_name}/{operation}"
-            if template_key in self.templates:
-                del self.templates[template_key]
-                
-            return True
-        except Exception as e:
-            logger.error(f"Error creating template file {template_path}: {e}")
-            return False
-    
-    def create_template_if_not_exists(self, agent_name: str, operation: str, content: str) -> bool:
-        agent_dir = self.prompt_dir / agent_name
-        template_path = agent_dir / f"{operation}.j2"
-        
-        if template_path.exists():
-            return True
-        
-        flat_template_path = self.prompt_dir / f"{agent_name}_{operation}.j2"
-        if flat_template_path.exists():
-            return True
-        
-        return self.create_template(agent_name, operation, content)
