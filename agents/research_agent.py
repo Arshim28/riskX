@@ -1,3 +1,4 @@
+# agents/research_agent.py
 from typing import Dict, List, Any, Tuple, Set, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 import json
@@ -6,8 +7,8 @@ import re
 from datetime import datetime
 
 from base.base_agents import BaseAgent
-from utils.llm_provider import get_llm_provider, LLMProvider
-from utils.prompt_manager import PromptManager
+from utils.llm_provider import get_llm_provider
+from utils.prompt_manager import get_prompt_manager
 from utils.logging import get_logger
 from tools.search_tool import SearchTool, SearchResult
 
@@ -18,10 +19,10 @@ class ResearchAgent(BaseAgent):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-        self.prompt_manager = PromptManager()  
+        self.prompt_manager = get_prompt_manager()  
         self.search_tool = SearchTool(config.get("research", {}))
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_queries(self, company: str, industry: str, research_plan: Dict, query_history: List[Dict[str, List]]) -> Dict[str, List[str]]:
         self.logger.info(f"Generating queries based on research plan: {research_plan.get('objective', 'No objective')}")
         
@@ -66,7 +67,7 @@ class ResearchAgent(BaseAgent):
         
         return query_categories
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def group_results(self, company: str, articles: List[SearchResult], industry: str = None) -> Dict[str, List[Dict]]:
         if not articles:
             self.logger.info("No articles to cluster")
@@ -80,72 +81,64 @@ class ResearchAgent(BaseAgent):
         
         regular_events = {}
         if other_articles:
-            try:
-                llm_provider = await get_llm_provider()
+            llm_provider = await get_llm_provider()
+            
+            simplified_articles = []
+            for i, article in enumerate(other_articles):
+                simplified_articles.append({
+                    "index": i,
+                    "title": article.title,
+                    "snippet": article.snippet or "",
+                    "date": article.date or "Unknown date",
+                    "source": article.source or "Unknown source",
+                    "category": article.category or "general"
+                })
+            
+            variables = {
+                "company": company,
+                "industry": industry if industry else "Unknown",
+                "simplified_articles": json.dumps(simplified_articles)
+            }
+            
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="article_clustering",
+                variables=variables
+            )
+            
+            input_message = [
+                ("system", system_prompt),
+                ("human", human_prompt)
+            ]
+            
+            response = await llm_provider.generate_text(
+                prompt=input_message,
+                model_name=self.config.get("models", {}).get("planning")
+            )
+            
+            response_content = response.strip()
+            
+            if "```json" in response_content:
+                json_content = response_content.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_content:
+                json_content = response_content.split("```")[1].strip()
+            else:
+                json_content = response_content
                 
-                simplified_articles = []
-                for i, article in enumerate(other_articles):
-                    simplified_articles.append({
-                        "index": i,
-                        "title": article.title,
-                        "snippet": article.snippet or "",
-                        "date": article.date or "Unknown date",
-                        "source": article.source or "Unknown source",
-                        "category": article.category or "general"
-                    })
+            clustered_indices = json.loads(json_content)
+            
+            for event_name, indices in clustered_indices.items():
+                valid_indices = []
+                for idx in indices:
+                    if isinstance(idx, str) and idx.isdigit():
+                        idx = int(idx)
+                    if isinstance(idx, int) and 0 <= idx < len(other_articles):
+                        valid_indices.append(idx)
                 
-                variables = {
-                    "company": company,
-                    "industry": industry if industry else "Unknown",
-                    "simplified_articles": json.dumps(simplified_articles)
-                }
-                
-                system_prompt, human_prompt = self.prompt_manager.get_prompt(
-                    agent_name=self.name,
-                    operation="article_clustering",
-                    variables=variables
-                )
-                
-                input_message = [
-                    ("system", system_prompt),
-                    ("human", human_prompt)
-                ]
-                
-                response = await llm_provider.generate_text(
-                    prompt=input_message,
-                    model_name=self.config.get("models", {}).get("planning")
-                )
-                
-                response_content = response.strip()
-                
-                if "```json" in response_content:
-                    json_content = response_content.split("```json")[1].split("```")[0].strip()
-                elif "```" in response_content:
-                    json_content = response_content.split("```")[1].strip()
-                else:
-                    json_content = response_content
-                    
-                clustered_indices = json.loads(json_content)
-                
-                for event_name, indices in clustered_indices.items():
-                    valid_indices = []
-                    for idx in indices:
-                        if isinstance(idx, str) and idx.isdigit():
-                            idx = int(idx)
-                        if isinstance(idx, int) and 0 <= idx < len(other_articles):
-                            valid_indices.append(idx)
-                    
-                    if valid_indices:
-                        regular_events[event_name] = [other_articles[i].model_dump() for i in valid_indices]
-                
-                self.logger.info(f"Grouped non-quarterly articles into {len(regular_events)} events")
-                
-            except Exception as e:
-                self.logger.error(f"Error clustering non-quarterly articles: {str(e)}")
-                
-                for i, article in enumerate(other_articles):
-                    event_name = f"News: {article.title[:50]}..."
-                    regular_events[event_name] = [article.model_dump()]
+                if valid_indices:
+                    regular_events[event_name] = [other_articles[i].model_dump() for i in valid_indices]
+            
+            self.logger.info(f"Grouped non-quarterly articles into {len(regular_events)} events")
         
         if quarterly_report_articles:
             dates = [article.date or "" for article in quarterly_report_articles]
@@ -200,9 +193,8 @@ class ResearchAgent(BaseAgent):
         
         event_name_lower = event_name.lower()
         
-        # Fix for issue #2: Make sure quarterly reports get a lower score
         if any(term in event_name_lower for term in ['quarterly report', 'financial results', 'earnings report', 'agm', 'board meeting']):
-            score -= 60  # Reduce by more to ensure it's below 50
+            score -= 60
         
         if any(term in event_name_lower for term in ['fraud', 'scam', 'lawsuit', 'investigation', 'scandal', 'fine', 'penalty', 'cbI raid', 'ed probe', 'bribery', 'allegation']):
             score += 30
@@ -233,13 +225,10 @@ class ResearchAgent(BaseAgent):
         return score
     
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the research agent workflow"""
         try:
-            # Initialize research_results if not present (fix for issue #3)
             if "research_results" not in state:
                 state["research_results"] = {}
                 
-            # Log the start of processing
             self.logger.info(f"Starting research agent with state: {state.get('company')}")
             
             company = state.get("company", "")
@@ -284,18 +273,15 @@ class ResearchAgent(BaseAgent):
                         "tbm": "nws" if search_type == "google_news" else None
                     }
                     
-                    try:
-                        result = await self.search_tool.run(query=query, **search_params)
-                        
-                        if result.success and result.data:
-                            for article in result.data:
-                                article_dict = article.model_dump()
-                                article_dict["category"] = category
-                                all_articles.append(article_dict)
-                        
-                        await asyncio.sleep(1)  
-                    except Exception as e:
-                        self.logger.error(f"Error executing query '{query}': {str(e)}")
+                    result = await self.search_tool.run(query=query, **search_params)
+                    
+                    if result.success and result.data:
+                        for article in result.data:
+                            article_dict = article.model_dump()
+                            article_dict["category"] = category
+                            all_articles.append(article_dict)
+                    
+                    await asyncio.sleep(1)  
             
             search_history.append(executed_queries)
             state["search_history"] = search_history
@@ -304,25 +290,22 @@ class ResearchAgent(BaseAgent):
             
             if not all_articles:
                 self.logger.info("No articles found with targeted queries. Trying fallback query.")
-                try:
-                    fallback_query = f'"{company}" negative news'
-                    if fallback_query not in [q for sublist in search_history for q in sublist]:
-                        search_params = {
-                            "tbm": "nws" if search_type == "google_news" else None
-                        }
+                fallback_query = f'"{company}" negative news'
+                if fallback_query not in [q for sublist in search_history for q in sublist]:
+                    search_params = {
+                        "tbm": "nws" if search_type == "google_news" else None
+                    }
+                    
+                    search_history[-1].append(fallback_query)
+                    result = await self.search_tool.run(query=fallback_query, **search_params)
+                    
+                    if result.success and result.data:
+                        for article in result.data:
+                            article_dict = article.model_dump()
+                            article_dict["category"] = "general"
+                            all_articles.append(article_dict)
                         
-                        search_history[-1].append(fallback_query)
-                        result = await self.search_tool.run(query=fallback_query, **search_params)
-                        
-                        if result.success and result.data:
-                            for article in result.data:
-                                article_dict = article.model_dump()
-                                article_dict["category"] = "general"
-                                all_articles.append(article_dict)
-                            
-                        self.logger.info(f"Fallback query returned {len(all_articles)} articles")
-                except Exception as e:
-                    self.logger.error(f"Error with fallback query: {str(e)}")
+                    self.logger.info(f"Fallback query returned {len(all_articles)} articles")
             
             unique_articles = []
             seen_urls = set()
@@ -371,15 +354,15 @@ class ResearchAgent(BaseAgent):
                     self.logger.info(f"Returning {len(unique_articles)} unclustered articles")
             
             self.logger.info(f"Research completed for {company}")
-            return {**state, "goto": "meta_agent"}
+            return {**state, "goto": "meta_agent", "research_agent_status": "DONE"}
             
         except Exception as e:
             self.logger.error(f"Unexpected error in research agent: {str(e)}")
-            # Make sure we always return research_results, even on error (fix for issue #3)
             if "research_results" not in state:
                 state["research_results"] = {}
             return {
                 **state, 
                 "goto": "meta_agent",
-                "error": f"Research agent error: {str(e)}"
+                "error": f"Research agent error: {str(e)}",
+                "research_agent_status": "ERROR"
             }

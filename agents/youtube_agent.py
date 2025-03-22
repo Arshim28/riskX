@@ -1,7 +1,7 @@
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional
 import json
 import asyncio
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from base.base_agents import BaseAgent
 from utils.llm_provider import get_llm_provider
@@ -27,12 +27,11 @@ class YouTubeAgent(BaseAgent):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-        self.prompt_manager = get_prompt_manager(self.name)
+        self.prompt_manager = get_prompt_manager()
         self.youtube_tool = YoutubeTool(config.get("youtube", {}))
         
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_videos(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search for videos related to the query"""
         self.logger.info(f"Searching YouTube for: {query}")
         
         search_result = await self.youtube_tool.run(
@@ -47,9 +46,8 @@ class YouTubeAgent(BaseAgent):
             
         return search_result.data.get("videos", [])
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_transcript(self, video_id: str) -> Optional[str]:
-        """Get transcript for a video"""
         self.logger.info(f"Getting transcript for video: {video_id}")
         
         transcript_result = await self.youtube_tool.run(
@@ -63,9 +61,8 @@ class YouTubeAgent(BaseAgent):
             
         return transcript_result.data.get("transcript")
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def analyze_transcript(self, video_data: VideoData, company: str) -> Dict[str, Any]:
-        """Analyze video transcript for forensic insights"""
         self.logger.info(f"Analyzing transcript for video: {video_data.video_id}")
         
         if not video_data.transcript:
@@ -76,14 +73,13 @@ class YouTubeAgent(BaseAgent):
                 "summary": "No transcript available for analysis"
             }
         
-        # Use LLM to analyze the transcript
         llm_provider = await get_llm_provider()
         
         variables = {
             "company": company,
             "video_title": video_data.title,
             "video_description": video_data.description,
-            "transcript": video_data.transcript[:8000]  # Limit length to avoid token limits
+            "transcript": video_data.transcript[:8000]
         }
         
         system_prompt, human_prompt = self.prompt_manager.get_prompt(
@@ -98,7 +94,7 @@ class YouTubeAgent(BaseAgent):
         ]
         
         response = await llm_provider.generate_text(
-            prompt=input_message,
+            input_message,
             model_name=self.config.get("models", {}).get("analysis")
         )
         
@@ -114,7 +110,6 @@ class YouTubeAgent(BaseAgent):
         
         video_data.forensic_summary = analysis_result
         
-        # Set relevance score based on forensic_relevance
         relevance_mapping = {
             "high": 0.9,
             "medium": 0.6,
@@ -128,12 +123,10 @@ class YouTubeAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_channel_videos(self, channel_name: str, max_results: int = 20) -> List[Dict[str, Any]]:
-        """Get videos from a specific channel"""
         self.logger.info(f"Getting videos from channel: {channel_name}")
         
-        # First get the channel ID
         channel_id_result = await self.youtube_tool.run(
             action="get_channel_id",
             channel_name=channel_name
@@ -145,16 +138,14 @@ class YouTubeAgent(BaseAgent):
             
         channel_id = channel_id_result.data.get("channel_id")
         
-        # Get playlists from the channel
         playlists_result = await self.youtube_tool.run(
             action="get_playlists",
             channel_id=channel_id,
-            max_results=5  # Limit to top playlists
+            max_results=5
         )
         
         all_videos = []
         
-        # Get videos from each playlist
         if playlists_result.success and playlists_result.data.get("playlists"):
             for playlist in playlists_result.data.get("playlists"):
                 playlist_id = playlist.get("id")
@@ -162,7 +153,7 @@ class YouTubeAgent(BaseAgent):
                 playlist_videos_result = await self.youtube_tool.run(
                     action="get_playlist_videos",
                     playlist_id=playlist_id,
-                    max_results=10  # Limit videos per playlist
+                    max_results=10
                 )
                 
                 if playlist_videos_result.success and playlist_videos_result.data.get("videos"):
@@ -171,7 +162,6 @@ class YouTubeAgent(BaseAgent):
                 if len(all_videos) >= max_results:
                     break
         
-        # If we didn't get enough videos from playlists, search for videos from the channel
         if len(all_videos) < max_results:
             search_query = f"channel:{channel_name}"
             search_result = await self.youtube_tool.run(
@@ -183,7 +173,6 @@ class YouTubeAgent(BaseAgent):
             if search_result.success and search_result.data.get("videos"):
                 all_videos.extend(search_result.data.get("videos"))
         
-        # Deduplicate based on video ID
         unique_videos = {}
         for video in all_videos:
             video_id = video.get("id")
@@ -192,17 +181,14 @@ class YouTubeAgent(BaseAgent):
         
         return list(unique_videos.values())
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_video_summary(self, videos_data: List[VideoData], company: str) -> Dict[str, Any]:
-        """Generate a summary of all analyzed videos"""
         self.logger.info(f"Generating video summary for {len(videos_data)} videos about {company}")
         
-        # Sort videos by relevance score
         sorted_videos = sorted(videos_data, key=lambda x: x.relevance_score, reverse=True)
         
-        # Prepare video summaries for LLM
         video_summaries = []
-        for i, video in enumerate(sorted_videos[:10]):  # Limit to top 10 videos
+        for i, video in enumerate(sorted_videos[:10]):
             summary = {
                 "video_id": video.video_id,
                 "title": video.title,
@@ -213,7 +199,6 @@ class YouTubeAgent(BaseAgent):
             }
             video_summaries.append(summary)
         
-        # Use LLM to generate a comprehensive summary
         llm_provider = await get_llm_provider()
         
         variables = {
@@ -235,7 +220,7 @@ class YouTubeAgent(BaseAgent):
         ]
         
         response = await llm_provider.generate_text(
-            prompt=input_message,
+            input_message,
             model_name=self.config.get("models", {}).get("summary")
         )
         
@@ -254,7 +239,6 @@ class YouTubeAgent(BaseAgent):
         return summary_result
     
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the YouTube agent workflow"""
         self._log_start(state)
         
         company = state.get("company", "")
@@ -263,15 +247,14 @@ class YouTubeAgent(BaseAgent):
         
         if not company:
             self.logger.error("Company name is missing!")
-            return {**state, "goto": "meta_agent", "error": "Company name is missing", "youtube_status": "ERROR"}
+            return {**state, "goto": "meta_agent", "youtube_status": "ERROR", "error": "Company name is missing"}
         
         if not research_plan:
             self.logger.error("No research plan provided!")
-            return {**state, "goto": "meta_agent", "error": "No research plan provided", "youtube_status": "ERROR"}
+            return {**state, "goto": "meta_agent", "youtube_status": "ERROR", "error": "No research plan provided"}
         
-        # Extract YouTube search queries from the research plan
         youtube_queries = []
-        current_plan = research_plan[-1]  # Get most recent research plan
+        current_plan = research_plan[-1]
         
         for category, queries in current_plan.get("query_categories", {}).items():
             if isinstance(queries, list):
@@ -279,7 +262,6 @@ class YouTubeAgent(BaseAgent):
             else:
                 youtube_queries.append(f"{company} {queries}")
         
-        # Add company name as a basic query if no others are available
         if not youtube_queries:
             youtube_queries.append(company)
             if industry:
@@ -290,7 +272,6 @@ class YouTubeAgent(BaseAgent):
         
         self.logger.info(f"YouTube research plan for {company} with {len(youtube_queries)} queries")
         
-        # Initialize results structure
         youtube_results = {
             "videos": [],
             "channels": {},
@@ -298,25 +279,19 @@ class YouTubeAgent(BaseAgent):
             "red_flags": []
         }
         
-        # Collect videos from all queries
         all_videos = []
         
         for query in youtube_queries:
-            try:
-                videos = await self.search_videos(query, max_results=5)
-                all_videos.extend(videos)
-                self.logger.info(f"Found {len(videos)} videos for query: {query}")
-            except Exception as e:
-                self.logger.error(f"Error searching videos for query '{query}': {str(e)}")
+            videos = await self.search_videos(query, max_results=5)
+            all_videos.extend(videos)
+            self.logger.info(f"Found {len(videos)} videos for query: {query}")
         
-        # Deduplicate videos based on ID
         unique_videos = {}
         for video in all_videos:
             video_id = video.get("id")
             if video_id and video_id not in unique_videos:
                 unique_videos[video_id] = video
         
-        # Collect unique channel names
         channels = {}
         for video in unique_videos.values():
             channel = video.get("channel_title")
@@ -325,18 +300,13 @@ class YouTubeAgent(BaseAgent):
             elif channel:
                 channels[channel] += 1
         
-        # Get more videos from top channels
         top_channels = sorted(channels.items(), key=lambda x: x[1], reverse=True)[:3]
         for channel_name, _ in top_channels:
-            try:
-                channel_videos = await self.get_channel_videos(channel_name, max_results=10)
-                all_videos.extend(channel_videos)
-                youtube_results["channels"][channel_name] = len(channel_videos)
-                self.logger.info(f"Found {len(channel_videos)} videos from channel: {channel_name}")
-            except Exception as e:
-                self.logger.error(f"Error getting videos from channel '{channel_name}': {str(e)}")
+            channel_videos = await self.get_channel_videos(channel_name, max_results=10)
+            all_videos.extend(channel_videos)
+            youtube_results["channels"][channel_name] = len(channel_videos)
+            self.logger.info(f"Found {len(channel_videos)} videos from channel: {channel_name}")
         
-        # Re-deduplicate after adding channel videos
         unique_videos = {}
         for video in all_videos:
             video_id = video.get("id")
@@ -345,10 +315,8 @@ class YouTubeAgent(BaseAgent):
         
         self.logger.info(f"Collected {len(unique_videos)} unique videos about {company}")
         
-        # Process videos - get transcripts and analyze
         videos_data = []
         
-        # Create a list of VideoData objects
         for video in unique_videos.values():
             video_data = VideoData(
                 video_id=video.get("id"),
@@ -358,68 +326,46 @@ class YouTubeAgent(BaseAgent):
             )
             videos_data.append(video_data)
         
-        # Prioritize video processing - analyze only top videos based on view count or relevance
-        max_to_analyze = min(20, len(videos_data))  # Limit the number of videos to analyze
+        max_to_analyze = min(20, len(videos_data))
         videos_to_analyze = videos_data[:max_to_analyze]
         
         self.logger.info(f"Analyzing {len(videos_to_analyze)} videos out of {len(videos_data)} total")
         
-        # Process videos in batches to avoid overloading
         batch_size = 5
         for i in range(0, len(videos_to_analyze), batch_size):
             batch = videos_to_analyze[i:i+batch_size]
             
-            # Get transcripts
             transcript_tasks = []
             for video_data in batch:
                 task = asyncio.create_task(self.get_transcript(video_data.video_id))
                 transcript_tasks.append((video_data, task))
                 
-            # Wait for transcripts and process
             for video_data, task in transcript_tasks:
-                try:
-                    transcript = await task
-                    if transcript:
-                        video_data.transcript = transcript
-                        self.logger.info(f"Got transcript for video: {video_data.video_id}")
-                    else:
-                        self.logger.warning(f"No transcript available for video: {video_data.video_id}")
-                except Exception as e:
-                    self.logger.error(f"Error getting transcript for video {video_data.video_id}: {str(e)}")
+                transcript = await task
+                if transcript:
+                    video_data.transcript = transcript
+                    self.logger.info(f"Got transcript for video: {video_data.video_id}")
+                else:
+                    self.logger.warning(f"No transcript available for video: {video_data.video_id}")
             
-            # Analyze transcripts
             analysis_tasks = []
             for video_data in batch:
                 if video_data.transcript:
                     task = asyncio.create_task(self.analyze_transcript(video_data, company))
                     analysis_tasks.append((video_data, task))
             
-            # Wait for analysis
             for video_data, task in analysis_tasks:
-                try:
-                    analysis = await task
-                    self.logger.info(f"Analyzed transcript for video: {video_data.video_id} - Relevance: {analysis.get('forensic_relevance', 'unknown')}")
-                except Exception as e:
-                    self.logger.error(f"Error analyzing transcript for video {video_data.video_id}: {str(e)}")
+                analysis = await task
+                self.logger.info(f"Analyzed transcript for video: {video_data.video_id} - Relevance: {analysis.get('forensic_relevance', 'unknown')}")
         
-        # Generate summary
-        try:
-            summary = await self.generate_video_summary(videos_data, company)
-            youtube_results["summary"] = summary
+        summary = await self.generate_video_summary(videos_data, company)
+        youtube_results["summary"] = summary
+        
+        if "red_flags" in summary and isinstance(summary["red_flags"], list):
+            youtube_results["red_flags"] = summary["red_flags"]
             
-            # Extract red flags
-            if "red_flags" in summary and isinstance(summary["red_flags"], list):
-                youtube_results["red_flags"] = summary["red_flags"]
-                
-            self.logger.info(f"Generated YouTube summary for {company} with {len(youtube_results['red_flags'])} red flags")
-        except Exception as e:
-            self.logger.error(f"Error generating video summary for {company}: {str(e)}")
-            youtube_results["summary"] = {
-                "error": f"Failed to generate summary: {str(e)}",
-                "overall_assessment": "Unknown"
-            }
+        self.logger.info(f"Generated YouTube summary for {company} with {len(youtube_results['red_flags'])} red flags")
         
-        # Prepare video results for state
         for video_data in videos_data:
             video_result = {
                 "video_id": video_data.video_id,
@@ -434,13 +380,11 @@ class YouTubeAgent(BaseAgent):
             }
             youtube_results["videos"].append(video_result)
         
-        # Update state
         state["youtube_results"] = youtube_results
         state["youtube_status"] = "DONE"
         
-        # Determine next step
-        goto = "meta_agent"  # Default to meta_agent for orchestration
-        if state.get("synchronous_pipeline", False):  # If running in synchronous mode
+        goto = "meta_agent"
+        if state.get("synchronous_pipeline", False):
             goto = state.get("next_agent", "meta_agent")
             
         self._log_completion({**state, "goto": goto})
