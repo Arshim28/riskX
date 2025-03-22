@@ -1,0 +1,314 @@
+Announcements:
+  endpoint: corporate-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements
+  description: >
+    Returns corporate announcements by companies listed on NSE.
+    You can either just get the announcements by dates or for a particular company
+    but when doing it for a company you need to pass in symbol as well as issuer
+    which is the company name.
+
+AnnXBRL:
+  endpoint: XBRL-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+    type: announcements
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements-xbrl
+  description: >
+    Returns Announcements only of a certain kind based on the type parameter, this is generally used for information
+    which is reported in XRBL format. Information can be retrieved by date or for a particular company or a combination of both.
+    use the folloeing type to announcement mapping based on the kind of announcement you are looking for:
+    - announcements: Change in Directors/KMP/SMP/Auditors/RTA
+    - outcome: Outcome of Board Meeting
+    - Reg30: Restructuring - Regulation 30 (Reports major restructuring of any kind)
+    - annFraud: Fraudt/Default/Arrest PARA A (disclosure regarding fradulent activities, financial defaults or arrests involving the company)
+    - cdr: Corporate Debt Restructuring
+    - shm: Notice of Shareholders Meeting
+    - fundRaising: Issuance/Allotment/Alteration/Restriction on transferability of securities - PARA A (disclosure on activities like fund raising, splits, consolidations etc)
+    - agr: Agreements/Contracts/Arrangements/MOU - PARA A (disclosure on agreements, contracts or arrangements)
+    - annOts: One time settlement/Inter-Creditors Agreement 
+    - CIRP: Corporate Insolvency Resolution Process
+
+AnnualReports:
+  endpoint: annual-reports
+  params:
+    index: equities
+    symbol: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-annual-reports
+  description: >
+    Returns the links either .pdf or .zip files of annual reports of the companies listed on NSE.
+
+BussinessSustainabilitiyReport:
+  endpoint: corporate-bussiness-sustainabilitiy
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports
+  description: >
+    Returns the links either .pdf or .zip files of Bussiness Sustainabilitiy reports of the companies listed on NSE. This report is available only from the year 2024.
+
+BoardMeetings:
+  endpoint: corporate-board-meetings
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-board-meetings
+  description: >
+    Returns information about board meeting of the company, it contains information like date and purpose. The function can be called just with a symbol and issuer to get information about 20 latest board meetings. It also accepts to and from date as arguments to get all meetings within the time frame.
+
+CorporateActions:
+  endpoint: corporates-corporateActions
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-actions
+  description: >
+    Return information about corporate actions for the given company. If from and to dates are not provided it will return the latest 20 corporate actions for the company. If the dates are provided it will return all the corporate actions within the time frame.
+
+credit_rating:
+  endpoint: corporate-credit-rating
+  params:
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/crd
+  description: >
+    Returns the credit rating of the company
+
+interest_Payment:
+  endpoint: corporate-interest-payment
+  params: 
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/ipd
+  description: >
+    Returns the interest payment details of the company
+
+redempay:
+  endpoint: corporate-redemption-payment
+  params: 
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/rpd
+  description: >
+    Returns the redemption payment details of the company
+
+reg_60:
+  endpoint: corporate-reg60
+  params: 
+    index: ""
+    issuer: ""
+    from_date: ""
+    to_date: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database
+  description: >
+    Returns information about payments like interest, dividends, or redemptions on non-convertible securities. If from and to dates are not provided it will return the latest 20 corporate actions for the company. If the dates are provided it will return all the corporate actions within the time frame.
+
+EventCalendar:
+  endpoint: event-calendar
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+  referer: ""
+  description: >
+    Returns information about important information about upcoming corporate events and actions of the company.
+
+FinancialResults:
+  endpoint: corporates-financial-results
+  params:
+    index: equities
+    period: Annual
+    from_date: ""
+    to_date: ""
+
+ResultsCompare:
+  endpoint: results-comparision
+  params:
+    symbol: ""
+
+FIQIP:
+  endpoint: corporate-further-issues-qip
+  params:
+    index: ""
+
+FIFCCB:
+  endpoint: corporate-further-issues-fccb
+  params:
+    index: ""
+
+FIPREF:
+  endpoint: corporate-further-issues-pref
+  params:
+    index: ""
+
+FIRI:
+  endpoint: corporate-further-issues-ri
+  params: []
+
+InsiderTrading:
+  endpoint: corporates-pit
+  params:
+    index: equities
+    to_date: ""
+    from_date: ""
+  referer: corporate-filings-insider-trading
+
+IntegratedFiling:
+  endpoint: integrated-filing-results
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+debt_offer_document:
+  endpoint: corporates/offerdocs
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+AnnXBRL-LOS:
+  endpoint: XBRL-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    type: shareloss
+
+RelatedPartyTransactions:
+  endpoint: related-party-transactions-master
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sast_29:
+  endpoint: corporate-sast-reg29
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sast_31:
+  endpoint: corporate-pledgedata-sast3132
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sast_encumbrance:
+  endpoint: corp-encumbrance
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sast_pledged:
+  endpoint: corporate-pledgedata
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+statementOfDeviation:
+  endpoint: statement-deviation-master
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+pitAnnual:
+  endpoint: corporate-IT-PIT-Annual
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sddRegulation29p:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg29
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sddRegulation29np:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg29npr
+    index: equities
+    from_date: ""
+    to_date: ""
+
+sddRegulation31:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg31
+    index: equities
+    from_date: ""
+    to_date: ""
+
+secretarial-camp:
+  endpoint: secretarial-camp
+  params:
+    index: equities
+    finyear: ""
+
+PostalBallot:
+  endpoint: postal-ballot
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+ShareholdingPatterns:
+  endpoint: corporate-share-holdings-master
+  params:
+    index: equities
+
+ShareholdingPatternsSdd:
+  endpoint: shareholding-patterns-sdd
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+
+StmtOfImpact:
+  endpoint: stmt-on-impact
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    periodEnd: all
+    reportingPeriod: Quaterly
+
+AnnXBRL-CTW:
+  endpoint: XBRL-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    type: ctw
+
+VotingResults:
+  endpoint: corporate-voting-results
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""

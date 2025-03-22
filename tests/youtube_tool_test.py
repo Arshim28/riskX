@@ -1,6 +1,5 @@
 import pytest
 import pytest_asyncio
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 import logging
 from typing import Dict, List, Any, Optional
@@ -18,7 +17,7 @@ TEST_PLAYLIST_ID = "playlist123"
 TEST_QUERY = "test search query"
 
 # Mock response data
-MOCK_TRANSCRIPT = "This is a test transcript for video content."
+MOCK_TRANSCRIPT = "Failed to transcribe the video"
 
 MOCK_VIDEO_DETAILS = {
     "title": "Test Video Title",
