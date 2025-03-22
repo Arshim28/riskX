@@ -16,6 +16,7 @@ dependencies = [
     "google-api-python-client>=2.165.0",
     "google-genai>=1.7.0",
     "google-search-results>=2.4.2",
+    "importlib>=1.0.4",
     "jinja2>=3.1.6",
     "langchain>=0.3.21",
     "langchain-anthropic>=0.3.10",

@@ -6,9 +6,9 @@ from datetime import datetime
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
-from langchain.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemoryCheckpoint
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.graph import CompiledGraph
 
 from base.base_graph import BaseGraph, GraphConfig
@@ -17,13 +17,13 @@ from utils.llm_provider import init_llm_provider, get_llm_provider
 from utils.prompt_manager import init_prompt_manager
 
 # Import agents
-from agents.meta_agent import EnhancedMetaAgent
+from agents.meta_agent import MetaAgent
 from agents.research_agent import ResearchAgent
 from agents.youtube_agent import YouTubeAgent
 from agents.corporate_agent import CorporateAgent
-from agents.analyst_agent import EnhancedAnalystAgent
+from agents.analyst_agent import AnalystAgent
 from agents.rag_agent import RAGAgent
-from agents.writer_agent import EnhancedWriterAgent
+from agents.writer_agent import WriterAgent
 
 
 class WorkflowState(TypedDict):
@@ -111,13 +111,13 @@ class EnhancedForensicWorkflow(BaseGraph):
         init_prompt_manager()
         
         # Initialize agents
-        self.meta_agent = EnhancedMetaAgent(self.config)
+        self.meta_agent = MetaAgent(self.config)
         self.research_agent = ResearchAgent(self.config)
         self.youtube_agent = YouTubeAgent(self.config)
         self.corporate_agent = CorporateAgent(self.config)
-        self.analyst_agent = EnhancedAnalystAgent(self.config)
+        self.analyst_agent = AnalystAgent(self.config)
         self.rag_agent = RAGAgent(self.config)
-        self.writer_agent = EnhancedWriterAgent(self.config)
+        self.writer_agent = WriterAgent(self.config)
         
         # Initialize agent mapping
         self.agents = {
@@ -210,8 +210,8 @@ class EnhancedForensicWorkflow(BaseGraph):
             workflow.set_error_handler("error_handler")
         
         # Compile graph
-        memory = MemoryCheckpoint()
-        return workflow.compile(checkpointer=memory)
+        memory_saver = MemorySaver()
+        return workflow.compile(checkpointer=memory_saver)
     
     def create_agent_node(self, agent, agent_name: str):
         """Create a function that runs an agent and handles async execution."""
@@ -485,7 +485,7 @@ class EnhancedForensicWorkflow(BaseGraph):
                 event_data = task["event_data"]
                 
                 # Clone the analyst agent for this task
-                task_agent = EnhancedAnalystAgent(self.config)
+                task_agent = AnalystAgent(self.config)
                 
                 # Create task state
                 task_state = {

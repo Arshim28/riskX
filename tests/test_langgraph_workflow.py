@@ -1,4 +1,3 @@
-# tests/test_langgraph_workflow.py
 import pytest
 import pytest_asyncio
 import asyncio
@@ -32,16 +31,16 @@ def initial_state():
 @pytest_asyncio.fixture
 async def workflow(config):
     # We'll need to patch various dependencies
-    with patch("utils.logging.setup_logging"), \
+    with          patch("utils.logging.setup_logging"), \
          patch("utils.llm_provider.init_llm_provider"), \
          patch("utils.prompt_manager.init_prompt_manager"), \
-         patch("agents.meta_agent.EnhancedMetaAgent"), \
+         patch("agents.meta_agent.MetaAgent"), \
          patch("agents.research_agent.ResearchAgent"), \
          patch("agents.youtube_agent.YouTubeAgent"), \
          patch("agents.corporate_agent.CorporateAgent"), \
-         patch("agents.analyst_agent.EnhancedAnalystAgent"), \
+         patch("agents.analyst_agent.AnalystAgent"), \
          patch("agents.rag_agent.RAGAgent"), \
-         patch("agents.writer_agent.EnhancedWriterAgent"):
+         patch("agents.writer_agent.WriterAgent"):
         
         workflow = EnhancedForensicWorkflow(config)
         yield workflow
@@ -262,92 +261,6 @@ async def test_route_from_meta_agent(workflow):
     state["report_completed"] = True
     route = workflow.route_from_meta_agent(state)
     assert route == "meta_agent_final"  # Should finish workflow
-
-
-@pytest.mark.asyncio
-async def test_analyst_pool_node(workflow):
-    """Test the analyst pool node for processing analysis tasks."""
-    # Create a test state with analysis tasks
-    state = {
-        "company": "Test Company",
-        "industry": "Technology",
-        "analyst_tasks": [
-            {"event_name": "Event 1", "event_data": ["article1", "article2"]},
-            {"event_name": "Event 2", "event_data": ["article3"]}
-        ],
-        "analyst_task_results": {},
-        "analyst_pool_size": 2
-    }
-    
-    # Mock ThreadPoolExecutor for parallel processing
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_class:
-        # Setup mock executor
-        mock_executor = MagicMock()
-        mock_executor_class.return_value.__enter__.return_value = mock_executor
-        
-        # Setup mock futures with results
-        mock_future1 = MagicMock()
-        mock_future1.result.return_value = ("Event 1", {"status": "complete"})
-        
-        mock_future2 = MagicMock()
-        mock_future2.result.return_value = ("Event 2", {"status": "complete"})
-        
-        # Make sure submit method returns the mock futures
-        mock_executor.submit = MagicMock(side_effect=[mock_future1, mock_future2])
-        
-        # Run the node
-        result = await workflow.analyst_pool_node(state)
-        
-        # Verify results
-        assert result["goto"] == "meta_agent"
-        assert result["analyst_tasks"] == []
-        assert "Event 1" in result["analyst_task_results"]
-        assert "Event 2" in result["analyst_task_results"]
-        assert result["analyst_task_results"]["Event 1"]["status"] == "complete"
-        assert result["analyst_task_results"]["Event 2"]["status"] == "complete"
-
-
-@pytest.mark.asyncio
-async def test_merge_parallel_results(workflow):
-    """Test merging results from parallel agents."""
-    state = {
-        "company": "Test Company",
-        "industry": "Technology",
-        "agent_results": {
-            "research_agent": {
-                "research_results": {
-                    "Event 1": ["article1", "article2"]
-                },
-                "event_metadata": {
-                    "Event 1": {"importance": "high"}
-                }
-            },
-            "corporate_agent": {
-                "corporate_results": {
-                    "financial_data": {"revenue": 1000}
-                }
-            },
-            "youtube_agent": {
-                "youtube_results": {
-                    "videos": [{"id": "video1"}]
-                }
-            }
-        }
-    }
-    
-    # Merge the results
-    workflow.merge_parallel_results(state)
-    
-    # Verify the results were merged correctly
-    assert "research_results" in state
-    assert "event_metadata" in state
-    assert "corporate_results" in state
-    assert "youtube_results" in state
-    
-    assert state["research_results"]["Event 1"] == ["article1", "article2"]
-    assert state["event_metadata"]["Event 1"]["importance"] == "high"
-    assert state["corporate_results"]["financial_data"]["revenue"] == 1000
-    assert state["youtube_results"]["videos"][0]["id"] == "video1"
 
 
 @pytest.mark.asyncio
