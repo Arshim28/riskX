@@ -1,18 +1,33 @@
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 import json
 import asyncio
 from datetime import datetime
 import re
+import concurrent.futures
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from base.base_agents import BaseAgent
 from utils.llm_provider import get_llm_provider
-from utils.prompt_manager import get_prompt_manager, PromptManager
+from utils.prompt_manager import get_prompt_manager
 from utils.logging import get_logger
 from tools.content_parser_tool import ContentParserTool
+from tools.postgres_tool import PostgresTool
 
 
-class AnalystAgent(BaseAgent):
+class AnalysisTask:
+    def __init__(self, company: str, event_name: str, article_info: Dict, article_index: int, total_articles: int):
+        self.company = company
+        self.event_name = event_name
+        self.article_info = article_info
+        self.article_index = article_index
+        self.total_articles = total_articles
+        self.result = None
+        self.error = None
+        self.completed = False
+        self.processing_time = 0
+
+
+class EnhancedAnalystAgent(BaseAgent):
     name = "analyst_agent"
     
     def __init__(self, config: Dict[str, Any]):
@@ -20,6 +35,8 @@ class AnalystAgent(BaseAgent):
         self.logger = get_logger(self.name)
         self.prompt_manager = get_prompt_manager(self.name)
         self.content_parser_tool = ContentParserTool(config)
+        self.postgres_tool = PostgresTool(config.get("postgres", {}))
+        
         self.knowledge_base = {
             "events": {},          
             "entities": {},        
@@ -31,6 +48,7 @@ class AnalystAgent(BaseAgent):
             "sources": {},         
             "metadata": {}         
         }
+        
         self.processing_stats = {
             "total_events": 0,
             "total_articles": 0,
@@ -38,6 +56,27 @@ class AnalystAgent(BaseAgent):
             "articles_with_insights": 0,
             "events_with_insights": 0,
             "failed_articles": 0
+        }
+        
+        # Enhanced configuration for parallelization
+        self.max_workers = config.get("forensic_analysis", {}).get("max_workers", 5)
+        self.batch_size = config.get("forensic_analysis", {}).get("batch_size", 10)
+        self.concurrent_events = config.get("forensic_analysis", {}).get("concurrent_events", 2)
+        self.task_timeout = config.get("forensic_analysis", {}).get("task_timeout", 300)
+        
+        # Additional fields for enhanced analysis
+        self.processed_tasks = []
+        self.currently_processing = set()
+        self.task_queue = asyncio.Queue()
+        self.processing_semaphore = asyncio.Semaphore(self.max_workers)
+        self.evidence_strength_threshold = config.get("forensic_analysis", {}).get("evidence_strength", 3)
+        
+        # Analysis results tracker
+        self.result_tracker = {
+            "events_analyzed": set(),
+            "entities_identified": set(),
+            "red_flags_found": set(),
+            "timelines_created": {}
         }
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -91,9 +130,20 @@ class AnalystAgent(BaseAgent):
                 
             forensic_insights = json.loads(json_content)
             
+            # Store the complete extracted content
             forensic_insights["raw_extract"] = extracted_content
             forensic_insights["article_title"] = title
             forensic_insights["event_category"] = event_name
+            
+            # Store in database for future reference
+            try:
+                await self.postgres_tool.run(
+                    command="execute_query",
+                    query="INSERT INTO forensic_insights (company, event_name, article_title, insights_data) VALUES ($1, $2, $3, $4) ON CONFLICT (company, article_title) DO UPDATE SET insights_data = $4",
+                    params=[company, event_name, title, json.dumps(forensic_insights)]
+                )
+            except Exception as db_error:
+                self.logger.warning(f"Failed to store forensic insights in database: {str(db_error)[:100]}...")
             
             self.logger.info(f"Successfully extracted forensic insights from: {title}")
             return forensic_insights
@@ -102,14 +152,23 @@ class AnalystAgent(BaseAgent):
             self.logger.error(f"Error during content analysis: {str(e)[:100]}...")
             return None
     
-    async def process_article(self, company: str, event_name: str, article_info: Dict, article_index: int, total_articles: int) -> Optional[Dict]:
+    async def process_article(self, task: AnalysisTask) -> Optional[Dict]:
+        """Process a single article analysis task"""
+        company = task.company
+        event_name = task.event_name
+        article_info = task.article_info
+        article_index = task.article_index
+        total_articles = task.total_articles
+        
         article_title = article_info["title"]
         article_url = article_info["link"]
+        
+        start_time = datetime.now()
         
         try:
             self.logger.info(f"[{article_index+1}/{total_articles}] Processing: {article_title}")
             
-            # Use the ContentParserTool instead of direct fetch_article_content
+            # Use the ContentParserTool to fetch article content
             parser_result = await self.content_parser_tool.run(url=article_url)
             
             self.processing_stats["processed_articles"] += 1
@@ -117,6 +176,9 @@ class AnalystAgent(BaseAgent):
             if not parser_result.success:
                 self.logger.warning(f"Failed to fetch content for: {article_url}")
                 self.processing_stats["failed_articles"] += 1
+                task.error = f"Failed to fetch content: {parser_result.error}"
+                task.completed = True
+                task.processing_time = (datetime.now() - start_time).total_seconds()
                 return None
                 
             content = parser_result.data.get("content")
@@ -126,6 +188,8 @@ class AnalystAgent(BaseAgent):
             
             if not insights:
                 self.logger.info(f"No relevant forensic insights found in: {article_title}")
+                task.completed = True
+                task.processing_time = (datetime.now() - start_time).total_seconds()
                 return None
             
             self.processing_stats["articles_with_insights"] += 1
@@ -133,13 +197,50 @@ class AnalystAgent(BaseAgent):
             insights["url"] = article_url
             insights["metadata"] = metadata
             
-            self.logger.info(f"Successfully processed article: {article_title}")
+            task.result = insights
+            task.completed = True
+            task.processing_time = (datetime.now() - start_time).total_seconds()
+            
+            self.logger.info(f"Successfully processed article: {article_title} in {task.processing_time:.2f}s")
             return insights
             
         except Exception as e:
             self.logger.error(f"Error processing article {article_title}: {str(e)[:100]}...")
             self.processing_stats["failed_articles"] += 1
+            task.error = str(e)
+            task.completed = True
+            task.processing_time = (datetime.now() - start_time).total_seconds()
             return None
+    
+    async def process_articles_batch(self, tasks: List[AnalysisTask]) -> List[Dict]:
+        """Process a batch of article tasks concurrently"""
+        self.logger.info(f"Processing batch of {len(tasks)} articles")
+        
+        results = []
+        
+        # Use semaphore to limit concurrent tasks
+        async def process_with_semaphore(task):
+            async with self.processing_semaphore:
+                self.currently_processing.add(task.article_info["title"])
+                result = await self.process_article(task)
+                self.currently_processing.remove(task.article_info["title"])
+                return result
+        
+        # Process tasks concurrently
+        tasks_coroutines = [process_with_semaphore(task) for task in tasks]
+        batch_results = await asyncio.gather(*tasks_coroutines, return_exceptions=True)
+        
+        # Filter out None results and exceptions
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                self.logger.error(f"Task error: {str(result)[:100]}...")
+                tasks[i].error = str(result)
+                tasks[i].completed = True
+            elif result is not None:
+                results.append(result)
+                
+        self.processed_tasks.extend(tasks)
+        return results
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def synthesize_event_insights(self, company: str, event_name: str, insights_list: List[Dict]) -> Dict:
@@ -150,6 +251,20 @@ class AnalystAgent(BaseAgent):
             
         try:
             llm_provider = await get_llm_provider()
+            
+            # Check if we already have synthesis in database
+            try:
+                db_result = await self.postgres_tool.run(
+                    command="execute_query",
+                    query="SELECT synthesis_data FROM event_synthesis WHERE company = $1 AND event_name = $2",
+                    params=[company, event_name]
+                )
+                
+                if db_result.success and db_result.data:
+                    self.logger.info(f"Found existing synthesis in database for event: {event_name}")
+                    return json.loads(db_result.data[0]["synthesis_data"])
+            except Exception as db_error:
+                self.logger.warning(f"Failed to check database for event synthesis: {str(db_error)[:100]}...")
             
             simplified_insights = []
             for insight in insights_list:
@@ -190,7 +305,28 @@ class AnalystAgent(BaseAgent):
                 
             synthesis = json.loads(json_content)
             
+            # Store in database
+            try:
+                await self.postgres_tool.run(
+                    command="execute_query",
+                    query="INSERT INTO event_synthesis (company, event_name, synthesis_data) VALUES ($1, $2, $3) ON CONFLICT (company, event_name) DO UPDATE SET synthesis_data = $3",
+                    params=[company, event_name, json.dumps(synthesis)]
+                )
+            except Exception as db_error:
+                self.logger.warning(f"Failed to store event synthesis in database: {str(db_error)[:100]}...")
+            
             self.logger.info(f"Successfully synthesized insights for event: {event_name}")
+            
+            # Track entities and red flags
+            if "key_entities" in synthesis:
+                for entity in synthesis.get("key_entities", []):
+                    if "name" in entity and entity["name"] != "Unknown":
+                        self.result_tracker["entities_identified"].add(entity["name"])
+            
+            if "red_flags" in synthesis:
+                for flag in synthesis.get("red_flags", []):
+                    self.result_tracker["red_flags_found"].add(flag)
+            
             return synthesis
             
         except Exception as e:
@@ -214,6 +350,20 @@ class AnalystAgent(BaseAgent):
         try:
             llm_provider = await get_llm_provider()
             
+            # Check if we already have analysis in database
+            try:
+                db_result = await self.postgres_tool.run(
+                    command="execute_query",
+                    query="SELECT analysis_data FROM company_analysis WHERE company = $1",
+                    params=[company]
+                )
+                
+                if db_result.success and db_result.data:
+                    self.logger.info(f"Found existing analysis in database for company: {company}")
+                    return json.loads(db_result.data[0]["analysis_data"])
+            except Exception as db_error:
+                self.logger.warning(f"Failed to check database for company analysis: {str(db_error)[:100]}...")
+            
             simplified_events = {}
             for event_name, event_data in events_synthesis.items():
                 event_copy = event_data.copy()
@@ -221,10 +371,16 @@ class AnalystAgent(BaseAgent):
                     event_copy["narrative"] = event_copy["narrative"][:500] + "... [truncated]"
                 simplified_events[event_name] = event_copy
             
+            # Include corporate analysis results if available
+            corporate_data = {}
+            if "corporate_results" in self.knowledge_base:
+                corporate_data = self.knowledge_base["corporate_results"]
+            
             variables = {
                 "company": company,
                 "num_events": len(simplified_events),
-                "events_synthesis": json.dumps(simplified_events, indent=2)
+                "events_synthesis": json.dumps(simplified_events, indent=2),
+                "corporate_data": json.dumps(corporate_data, indent=2)
             }
             
             system_prompt, human_prompt = self.prompt_manager.get_prompt(
@@ -251,6 +407,16 @@ class AnalystAgent(BaseAgent):
                 
             analysis = json.loads(json_content)
             
+            # Store in database
+            try:
+                await self.postgres_tool.run(
+                    command="execute_query",
+                    query="INSERT INTO company_analysis (company, analysis_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET analysis_data = $2",
+                    params=[company, json.dumps(analysis)]
+                )
+            except Exception as db_error:
+                self.logger.warning(f"Failed to store company analysis in database: {str(db_error)[:100]}...")
+            
             self.logger.info(f"Successfully generated comprehensive analysis for {company}")
             return analysis
             
@@ -273,6 +439,124 @@ class AnalystAgent(BaseAgent):
                 "report_markdown": f"# Forensic Analysis of {company}\n\nAnalysis could not be completed due to technical error."
             }
     
+    async def process_event(self, company: str, event_name: str, articles: List) -> Tuple[List[Dict], Dict]:
+        """Process all articles for a single event"""
+        self.logger.info(f"Processing event: {event_name} with {len(articles)} articles")
+        self.result_tracker["events_analyzed"].add(event_name)
+        
+        # Create tasks for all articles
+        tasks = []
+        for i, article in enumerate(articles):
+            task = AnalysisTask(
+                company=company,
+                event_name=event_name,
+                article_info=article,
+                article_index=i,
+                total_articles=len(articles)
+            )
+            tasks.append(task)
+            
+        # Process articles in batches
+        all_insights = []
+        for i in range(0, len(tasks), self.batch_size):
+            batch = tasks[i:i+self.batch_size]
+            batch_insights = await self.process_articles_batch(batch)
+            all_insights.extend(batch_insights)
+            
+        if all_insights:
+            self.logger.info(f"Collected {len(all_insights)} insights for event: {event_name}")
+            self.knowledge_base["events"][event_name] = all_insights
+            self.processing_stats["events_with_insights"] += 1
+            
+            # Synthesize insights for the event
+            event_synthesis = await self.synthesize_event_insights(company, event_name, all_insights)
+            
+            # Extract and store timeline items
+            if event_synthesis and "timeline" in event_synthesis:
+                timeline_items = []
+                for timeline_item in event_synthesis.get("timeline", []):
+                    if "date" in timeline_item and timeline_item["date"] != "Unknown":
+                        timeline_item["event"] = event_name
+                        timeline_items.append(timeline_item)
+                
+                if timeline_items:
+                    self.knowledge_base["timeline"].extend(timeline_items)
+                    self.result_tracker["timelines_created"][event_name] = len(timeline_items)
+            
+            return all_insights, event_synthesis
+        else:
+            self.logger.info(f"No insights collected for event: {event_name}")
+            return [], None
+    
+    async def process_events_concurrently(self, company: str, research_results: Dict) -> Dict[str, Dict]:
+        """Process multiple events concurrently with limits"""
+        event_synthesis = {}
+        pending_events = list(research_results.keys())
+        
+        # Process events in batches for controlled concurrency
+        while pending_events:
+            # Take a batch of events to process concurrently
+            batch_size = min(self.concurrent_events, len(pending_events))
+            current_batch = pending_events[:batch_size]
+            pending_events = pending_events[batch_size:]
+            
+            self.logger.info(f"Processing batch of {len(current_batch)} events concurrently")
+            
+            # Create tasks for each event
+            tasks = []
+            for event_name in current_batch:
+                event_task = asyncio.create_task(
+                    self.process_event(company, event_name, research_results[event_name])
+                )
+                tasks.append((event_name, event_task))
+            
+            # Wait for all events in the batch to complete
+            for event_name, task in tasks:
+                try:
+                    insights, synthesis = await task
+                    
+                    if synthesis:
+                        event_synthesis[event_name] = synthesis
+                        self.logger.info(f"Added synthesis for event: {event_name}")
+                except Exception as e:
+                    self.logger.error(f"Error processing event {event_name}: {str(e)}")
+        
+        return event_synthesis
+    
+    async def integrate_corporate_data(self, company: str, state: Dict[str, Any]) -> None:
+        """Integrate corporate agent data into the knowledge base if available"""
+        if "corporate_results" in state and state["corporate_results"]:
+            self.logger.info(f"Integrating corporate data for {company}")
+            
+            corporate_results = state["corporate_results"]
+            self.knowledge_base["corporate_results"] = corporate_results
+            
+            # Add corporate data entities to overall entity tracking
+            if "company_info" in corporate_results:
+                company_info = corporate_results["company_info"]
+                if "name" in company_info:
+                    self.result_tracker["entities_identified"].add(company_info["name"])
+                
+            # Add corporate red flags to overall red flag tracking
+            if "red_flags" in corporate_results and isinstance(corporate_results["red_flags"], list):
+                for flag in corporate_results["red_flags"]:
+                    self.knowledge_base["red_flags"].append(flag)
+                    self.result_tracker["red_flags_found"].add(flag)
+    
+    async def integrate_youtube_data(self, company: str, state: Dict[str, Any]) -> None:
+        """Integrate YouTube agent data into the knowledge base if available"""
+        if "youtube_results" in state and state["youtube_results"]:
+            self.logger.info(f"Integrating YouTube data for {company}")
+            
+            youtube_results = state["youtube_results"]
+            self.knowledge_base["youtube_results"] = youtube_results
+            
+            # Add YouTube red flags to overall red flag tracking
+            if "red_flags" in youtube_results and isinstance(youtube_results["red_flags"], list):
+                for flag in youtube_results["red_flags"]:
+                    self.knowledge_base["red_flags"].append(flag)
+                    self.result_tracker["red_flags_found"].add(flag)
+    
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         self._log_start(state)
         
@@ -282,17 +566,19 @@ class AnalystAgent(BaseAgent):
         
         if not company:
             self.logger.error("Company name missing!")
-            return {**state, "goto": "writer_agent", "analyst_status": "ERROR", "error": "Company name missing"}
+            return {**state, "goto": "meta_agent", "analyst_status": "ERROR", "error": "Company name missing"}
         
         if not research_results:
             self.logger.error("No research results to analyze!")
-            return {**state, "goto": "writer_agent", "analyst_status": "ERROR", "error": "No research results"}
+            return {**state, "goto": "meta_agent", "analyst_status": "ERROR", "error": "No research results"}
         
         self.logger.info(f"Analyzing {len(research_results)} events for company: {company}")
         
+        # Initialize statistics
         self.processing_stats["total_events"] = len(research_results)
         self.processing_stats["total_articles"] = sum(len(articles) for articles in research_results.values())
         
+        # Initialize analysis results structure
         analysis_results = {
             "forensic_insights": {},    
             "event_synthesis": {},      
@@ -303,77 +589,37 @@ class AnalystAgent(BaseAgent):
             "timeline": [],             
         }
         
-        for event_name, articles in research_results.items():
-            self.logger.info(f"Processing {len(articles)} articles for event: {event_name}")
-            
-            event_insights = []
-            article_tasks = []
-            
-            for i, article in enumerate(articles):
-                task = self.process_article(company, event_name, article, i, len(articles))
-                article_tasks.append(task)
-            
-            results = await asyncio.gather(*article_tasks)
-            
-            for result in results:
-                if result:
-                    event_insights.append(result)
-            
-            if event_insights:
-                self.logger.info(f"Collected {len(event_insights)} insights for event: {event_name}")
-                analysis_results["forensic_insights"][event_name] = event_insights
-                self.knowledge_base["events"][event_name] = event_insights
-                self.processing_stats["events_with_insights"] += 1
-                
-                event_synthesis = await self.synthesize_event_insights(company, event_name, event_insights)
-                if event_synthesis:
-                    analysis_results["event_synthesis"][event_name] = event_synthesis
-                    
-                    if "timeline" in event_synthesis:
-                        timeline_items = []
-                        for timeline_item in event_synthesis.get("timeline", []):
-                            if "date" in timeline_item and timeline_item["date"] != "Unknown":
-                                timeline_item["event"] = event_name
-                                timeline_items.append(timeline_item)
-                        if timeline_items:
-                            self.knowledge_base["timeline"].extend(timeline_items)
-                            analysis_results["timeline"].extend(timeline_items)
-                    
-                    if "red_flags" in event_synthesis:
-                        for flag in event_synthesis.get("red_flags", []):
-                            if flag not in self.knowledge_base["red_flags"]:
-                                self.knowledge_base["red_flags"].append(flag)
-                            if flag not in analysis_results["red_flags"]:
-                                analysis_results["red_flags"].append(flag)
-                    
-                    if "key_entities" in event_synthesis:
-                        entities = {}
-                        for entity_info in event_synthesis.get("key_entities", []):
-                            if "name" in entity_info and entity_info["name"] != "Unknown":
-                                entity_name = entity_info["name"]
-                                entities[entity_name] = entity_info
-                        if entities:
-                            for entity, info in entities.items():
-                                if entity not in self.knowledge_base["entities"]:
-                                    self.knowledge_base["entities"][entity] = info
-                                else:
-                                    self.knowledge_base["entities"][entity].update(info)
-            else:
-                self.logger.info(f"No insights collected for event: {event_name}")
+        # Integrate corporate and YouTube data if available
+        await self.integrate_corporate_data(company, state)
+        await self.integrate_youtube_data(company, state)
         
-        analysis_results["timeline"] = sorted(
-            analysis_results["timeline"], 
+        # Process all events concurrently with controlled parallelism
+        event_synthesis = await self.process_events_concurrently(company, research_results)
+        
+        # Add synthesized events to results
+        analysis_results["event_synthesis"] = event_synthesis
+        
+        # Sort and organize timeline
+        timeline_items = self.knowledge_base["timeline"]
+        sorted_timeline = sorted(
+            timeline_items, 
             key=lambda x: datetime.fromisoformat(x["date"]) if re.match(r'\d{4}-\d{2}-\d{2}', x.get("date", "")) else datetime.now(),
             reverse=True
         )
+        analysis_results["timeline"] = sorted_timeline
         
-        if analysis_results["event_synthesis"]:
+        # Add red flags to results
+        analysis_results["red_flags"] = list(self.result_tracker["red_flags_found"])
+        
+        # Generate comprehensive company analysis
+        if event_synthesis:
             company_analysis = await self.generate_company_analysis(
                 company, 
-                analysis_results["event_synthesis"]
+                event_synthesis
             )
             analysis_results["company_analysis"] = company_analysis
             
+            # Use the report from company analysis or generate a fallback
             final_report = company_analysis.get("report_markdown", f"# Forensic Analysis of {company}\n\nNo significant findings.")
         else:
             self.logger.info(f"No significant forensic insights found for {company}")
@@ -406,14 +652,46 @@ class AnalystAgent(BaseAgent):
             that would warrant further investigation at this time.
             """
         
+        # Update entity network from all collected data
+        entity_network = {}
+        for entity_name in self.result_tracker["entities_identified"]:
+            entity_info = {"name": entity_name, "connections": []}
+            
+            # Check for entity in all event syntheses
+            for event_name, synthesis in event_synthesis.items():
+                if "key_entities" in synthesis:
+                    for entity in synthesis["key_entities"]:
+                        if entity.get("name") == entity_name:
+                            if "role" in entity:
+                                entity_info["role"] = entity.get("role")
+                            
+                            connection = {"event": event_name}
+                            entity_info["connections"].append(connection)
+            
+            if entity_info["connections"]:
+                entity_network[entity_name] = entity_info
+                
+        analysis_results["entity_network"] = entity_network
+        
+        # Update state with results
         state["analysis_results"] = analysis_results
         state["final_report"] = final_report
         state["analyst_status"] = "DONE"
         state["analysis_stats"] = self.processing_stats
         
+        # Save analysis results to database
+        try:
+            await self.postgres_tool.run(
+                command="execute_query",
+                query="INSERT INTO analysis_results (company, report_date, analysis_data, red_flags) VALUES ($1, $2, $3, $4)",
+                params=[company, datetime.now().isoformat(), json.dumps(analysis_results), json.dumps(analysis_results["red_flags"])]
+            )
+        except Exception as db_error:
+            self.logger.warning(f"Failed to save analysis results to database: {str(db_error)[:100]}...")
+        
         self.logger.info(f"Analysis complete. Processed {self.processing_stats['processed_articles']}/{self.processing_stats['total_articles']} articles.")
         self.logger.info(f"Found forensic insights in {self.processing_stats['articles_with_insights']} articles.")
         self.logger.info(f"Failed to process {self.processing_stats['failed_articles']} articles.")
         
-        self._log_completion({**state, "goto": "writer_agent"})
-        return {**state, "goto": "writer_agent"}
+        self._log_completion({**state, "goto": "meta_agent"})
+        return {**state, "goto": "meta_agent"}
