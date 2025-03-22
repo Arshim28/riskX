@@ -345,8 +345,6 @@ async def test_get_videos_from_playlist(youtube_tool, mock_youtube_client):
 
 @pytest.mark.asyncio
 async def test_run_search_videos(youtube_tool):
-    """Test the run method with search_videos action"""
-    # Mock the search_videos method
     with patch.object(youtube_tool, "search_videos") as mock_search:
         # Return VideoData objects as the actual method would
         from tools.youtube_tool import VideoData

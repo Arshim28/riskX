@@ -19,20 +19,44 @@ class WriterAgent(BaseAgent):
         self.prompt_manager = get_prompt_manager(self.name)
     
     def _select_top_events(self, events: Dict, event_metadata: Dict, max_detailed_events: int = 6) -> Tuple[List[str], List[str]]:
-        sorted_events = sorted(
-            [(name, event_metadata.get(name, {}).get("importance_score", 0)) 
-             for name in events.keys()],
-            key=lambda x: x[1],
-            reverse=True
-        )
+        """
+        Select top events for detailed analysis based on importance scores.
         
-        top_events = [name for name, _ in sorted_events[:max_detailed_events]]
-        other_events = [name for name, _ in sorted_events[max_detailed_events:]]
+        Args:
+            events: Dictionary of event data
+            event_metadata: Dictionary containing metadata about events, including importance scores
+            max_detailed_events: Maximum number of events to select for detailed analysis
+            
+        Returns:
+            Tuple containing:
+                1. List of event names selected for detailed analysis
+                2. List of remaining event names for summary
+        """
+        self.logger.info(f"Selecting top events from {len(events)} total events")
         
+        # Create list of (event_name, score) tuples with proper default handling
+        event_scores = []
+        for name in events.keys():
+            # Get metadata with fallback to empty dict
+            meta = event_metadata.get(name, {})
+            # Get importance_score with fallback to 0
+            score = meta.get("importance_score", 0)
+            # Use a secondary sorting key (event name) for consistent ordering of tied scores
+            event_scores.append((name, score, name))
+        
+        # Sort by score (descending) and then by name (for consistent tie-breaking)
+        sorted_events = sorted(event_scores, key=lambda x: (x[1], x[2]), reverse=True)
+        
+        # Extract just the event names
+        top_events = [name for name, _, _ in sorted_events[:max_detailed_events]]
+        other_events = [name for name, _, _ in sorted_events[max_detailed_events:]]
+        
+        self.logger.info(f"Selected {len(top_events)} top events and {len(other_events)} other events")
         return top_events, other_events
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_detailed_event_section(self, company: str, event_name: str, event_data: List[Dict]) -> str:
+        """Generate a detailed analysis section for a single event."""
         self.logger.info(f"Generating detailed analysis for event: {event_name}")
         
         article_summaries = [{
@@ -68,11 +92,12 @@ class WriterAgent(BaseAgent):
             return f"## {event_name}\n\n{detailed_section}\n\n"
             
         except Exception as e:
-            self.logger.error(f"Error generating detailed event section: {str(e)}")
-            return f"## {event_name}\n\nUnable to generate detailed analysis due to technical error.\n\n"
+            self.logger.error(f"Error generating detailed event section for '{event_name}': {str(e)}")
+            return f"## {event_name}\n\nUnable to generate detailed analysis due to technical error: {str(e)[:100]}...\n\n"
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_other_events_section(self, company: str, events: Dict, event_metadata: Dict, other_event_names: List[str]) -> str:
+        """Generate a summary section for events not covered in detail."""
         if not other_event_names:
             return ""
             
@@ -122,10 +147,17 @@ class WriterAgent(BaseAgent):
             
         except Exception as e:
             self.logger.error(f"Error generating other events section: {str(e)}")
-            return "# Other Notable Events\n\nUnable to generate summary of other events due to technical error.\n\n"
+            
+            # Generate a basic summary of events without LLM
+            basic_summary = "The following events were also identified but not analyzed in detail:\n\n"
+            for event in event_summaries:
+                basic_summary += f"- **{event['name']}** ({event['article_count']} articles)\n"
+                
+            return f"# Other Notable Events\n\n{basic_summary}\n\n"
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_executive_summary(self, company: str, top_events: List[str], all_events: Dict, event_metadata: Dict) -> str:
+        """Generate an executive summary based on the top events."""
         self.logger.info(f"Generating executive summary with focus on top {len(top_events)} events")
         
         top_event_info = []
@@ -164,10 +196,22 @@ class WriterAgent(BaseAgent):
             
         except Exception as e:
             self.logger.error(f"Error generating executive summary: {str(e)}")
-            return "# Executive Summary\n\nUnable to generate executive summary due to technical error.\n\n"
+            
+            # Generate a basic executive summary without LLM
+            basic_summary = f"""
+This report presents findings from an analysis of {len(all_events)} events related to {company}. 
+The events span various categories including financial reporting, regulatory actions, and news coverage.
+
+Key events analyzed in detail include:
+"""
+            for event in top_event_info:
+                basic_summary += f"- {event['name']}\n"
+                
+            return f"# Executive Summary\n\n{basic_summary}\n\n"
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_pattern_section(self, company: str, top_events: List[str], event_metadata: Dict) -> str:
+        """Generate a pattern recognition section identifying common themes across events."""
         if len(top_events) <= 1:
             return ""
             
@@ -204,10 +248,11 @@ class WriterAgent(BaseAgent):
             
         except Exception as e:
             self.logger.error(f"Error generating pattern section: {str(e)}")
-            return ""
+            return f"# Pattern Recognition\n\nThe system attempted to identify patterns across {len(top_events)} events but encountered an error: {str(e)[:100]}...\n\n"
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_recommendations(self, company: str, top_events: List[str]) -> str:
+        """Generate recommendations based on the analysis."""
         self.logger.info(f"Generating recommendations based on {len(top_events)} top events")
         
         try:
@@ -236,16 +281,19 @@ class WriterAgent(BaseAgent):
             
         except Exception as e:
             self.logger.error(f"Error generating recommendations: {str(e)}")
-            return "# Recommendations\n\nUnable to generate recommendations due to technical error.\n\n"
+            return f"# Recommendations\n\n1. Consider performing a more detailed investigation into {company}\n2. Gather additional information about each major event\n3. Review the available data for completeness\n\n"
     
     async def save_debug_report(self, company: str, full_report: str) -> None:
+        """Save a debug copy of the report to disk."""
         try:
             debug_dir = "debug/reports"
             if not os.path.exists(debug_dir):
                 os.makedirs(debug_dir, exist_ok=True)
             
-            timestamp = datetime.now().strftime("%Y-%m-%d")
-            debug_filename = f"{debug_dir}/{company.replace(' ', '_')}_{timestamp}.md"
+            # Add timestamp to provide more uniqueness
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            sanitized_company = "".join(c if c.isalnum() or c in ['-', '_'] else '_' for c in company)
+            debug_filename = f"{debug_dir}/{sanitized_company}_{timestamp}.md"
             
             with open(debug_filename, "w") as f:
                 f.write(full_report)
@@ -256,6 +304,7 @@ class WriterAgent(BaseAgent):
             self.logger.error(f"Could not save debug copy: {str(e)}")
     
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the writer agent workflow."""
         self._log_start(state)
         
         if state.get("analyst_status") != "DONE":
@@ -268,6 +317,15 @@ class WriterAgent(BaseAgent):
         research_results = state.get("research_results", {})
         event_metadata = state.get("event_metadata", {})
         analysis_results = state.get("analysis_results", {})
+        
+        # Input validation
+        if not isinstance(research_results, dict):
+            self.logger.error(f"Expected research_results to be a dictionary, got {type(research_results)}")
+            research_results = {}
+            
+        if not isinstance(event_metadata, dict):
+            self.logger.error(f"Expected event_metadata to be a dictionary, got {type(event_metadata)}")
+            event_metadata = {}
         
         report_sections = []
         
@@ -332,25 +390,39 @@ class WriterAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"Error in report generation: {str(e)}")
             
+            # Create a more informative fallback report
+            research_count = len(research_results) if isinstance(research_results, dict) else 0
+            
             fallback_report = f"""
-            # Forensic News Analysis Report: {company}
+# Forensic News Analysis Report: {company}
+
+Report Date: {datetime.now().strftime("%Y-%m-%d")}
+
+## Executive Summary
+
+This report presents the findings of a forensic news analysis conducted on {company}. Due to technical issues during report generation, this is a simplified version of the analysis.
+
+## Key Findings
+
+The analysis identified {research_count} significant events related to {company}.
+
+"""
             
-            Report Date: {datetime.now().strftime("%Y-%m-%d")}
+            # Include event names in the fallback report if available
+            if isinstance(research_results, dict) and research_results:
+                fallback_report += "## Events Identified\n\n"
+                for event_name in research_results.keys():
+                    article_count = len(research_results[event_name]) if isinstance(research_results[event_name], list) else 0
+                    fallback_report += f"- {event_name} ({article_count} articles)\n"
             
-            ## Executive Summary
-            
-            This report presents the findings of a forensic news analysis conducted on {company}. Due to technical issues during report generation, this is a simplified version of the full analysis.
-            
-            ## Key Findings
-            
-            The analysis identified {len(research_results)} significant events related to {company}.
-            
-            ## Limitation
-            
-            The full report could not be generated due to technical issues. Please refer to the raw analysis data for complete findings.
-            """
+            fallback_report += """
+## Technical Issue
+
+The full report could not be generated due to a technical error. Please refer to the logs for more information.
+"""
             
             state["final_report"] = fallback_report
+            state["error"] = str(e)
             self.logger.info("Generated fallback report due to errors.")
         
         self._log_completion({**state, "goto": "END"})
