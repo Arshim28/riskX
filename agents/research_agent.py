@@ -27,11 +27,22 @@ class ResearchAgent(BaseAgent):
         
         llm_provider = await get_llm_provider()
         
-        system_prompt = self.prompt_manager.get_prompt("query_generation")
+        variables = {
+            "company": company,
+            "industry": industry,
+            "research_plan": json.dumps(research_plan, indent=4),
+            "query_history": json.dumps(query_history, indent=4)
+        }
+        
+        system_prompt, human_prompt = self.prompt_manager.get_prompt(
+            agent_name=self.name,
+            operation="query_generation",
+            variables=variables
+        )
         
         input_message = [
             ("system", system_prompt),
-            ("human", f"Company: {company}\nIndustry: {industry}\n\nResearch Plan:\n{json.dumps(research_plan, indent=4)}\n\nPreviously Generated Queries:\n{json.dumps(query_history, indent=4)}\n\nGenerate new targeted search queries.")
+            ("human", human_prompt)
         ]
         
         response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("planning"))
@@ -69,8 +80,6 @@ class ResearchAgent(BaseAgent):
             try:
                 llm_provider = await get_llm_provider()
                 
-                system_prompt = self.prompt_manager.get_prompt("article_clustering")
-                
                 simplified_articles = []
                 for i, article in enumerate(other_articles):
                     simplified_articles.append({
@@ -82,9 +91,21 @@ class ResearchAgent(BaseAgent):
                         "category": article.category or "general"
                     })
                 
+                variables = {
+                    "company": company,
+                    "industry": industry if industry else "Unknown",
+                    "simplified_articles": json.dumps(simplified_articles)
+                }
+                
+                system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                    agent_name=self.name,
+                    operation="article_clustering",
+                    variables=variables
+                )
+                
                 input_message = [
                     ("system", system_prompt),
-                    ("human", f"Company: {company}\nIndustry: {industry if industry else 'Unknown'}\nArticles to analyze: {json.dumps(simplified_articles)}\n\nGroup these articles about {company} into distinct event clusters.")
+                    ("human", human_prompt)
                 ]
                 
                 response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("planning"))

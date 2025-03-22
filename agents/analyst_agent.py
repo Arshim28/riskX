@@ -134,12 +134,16 @@ class AnalystAgent(BaseAgent):
             
         try:
             llm_provider = await get_llm_provider()
-            
-            extract_system_prompt = self.prompt_manager.get_prompt("content_extraction")
+            variables = {"company": company, "title": title, "event_name": event_name, "content": content}
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="extract_forensic_insight",
+                variables=variables
+            )
             
             extract_prompt = [
-                ("system", extract_system_prompt),
-                ("human", f"Company: {company}\nArticle Title: {title}\nEvent Category: {event_name}\n\nDocument Content:\n{content[:25000]}\n\nExtract ONLY the forensically-relevant portions about {company}.")
+                ("system", system_prompt),
+                ("human", human_prompt)
             ]
             
             response = await llm_provider.generate_text(extract_prompt, model_name=self.config.get("forensic_analysis", {}).get("model"))
@@ -150,11 +154,16 @@ class AnalystAgent(BaseAgent):
                 self.logger.info(f"No forensic content found in article: {title}")
                 return None
                 
-            analysis_system_prompt = self.prompt_manager.get_prompt("forensic_analysis")
+            variables = {"company": company, "extracted_content": extracted_content}
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="analyze_forensic_content",
+                variables=variables
+            )
             
             analysis_prompt = [
-                ("system", analysis_system_prompt),
-                ("human", f"Company: {company}\nForensically-relevant excerpt:\n\n{extracted_content}\n\nAnalyze this excerpt and extract the specific forensic insights as structured JSON.")
+                ("system", system_prompt),
+                ("human", human_prompt)
             ]
             
             analysis_response = await llm_provider.generate_text(analysis_prompt, model_name=self.config.get("forensic_analysis", {}).get("model"))
@@ -225,8 +234,6 @@ class AnalystAgent(BaseAgent):
         try:
             llm_provider = await get_llm_provider()
             
-            system_prompt = self.prompt_manager.get_prompt("event_synthesis")
-            
             simplified_insights = []
             for insight in insights_list:
                 simplified = {k: v for k, v in insight.items() if k not in ["raw_extract", "metadata"]}
@@ -235,9 +242,22 @@ class AnalystAgent(BaseAgent):
                         simplified[key] = value[:1000] + "... [truncated]"
                 simplified_insights.append(simplified)
             
+            variables = {
+                "company": company,
+                "event_name": event_name,
+                "num_sources": len(simplified_insights),
+                "insights": json.dumps(simplified_insights, indent=2)
+            }
+            
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="synthesize_event_insights",
+                variables=variables
+            )
+            
             input_message = [
                 ("system", system_prompt),
-                ("human", f"Company: {company}\nEvent: {event_name}\nNumber of Sources: {len(simplified_insights)}\n\nSource Insights:\n{json.dumps(simplified_insights, indent=2)}\n\nSynthesize these insights into a comprehensive forensic assessment.")
+                ("human", human_prompt)
             ]
             
             response = await llm_provider.generate_text(input_message, model_name=self.config.get("forensic_analysis", {}).get("model"))
@@ -277,8 +297,6 @@ class AnalystAgent(BaseAgent):
         try:
             llm_provider = await get_llm_provider()
             
-            system_prompt = self.prompt_manager.get_prompt("company_analysis")
-            
             simplified_events = {}
             for event_name, event_data in events_synthesis.items():
                 event_copy = event_data.copy()
@@ -286,9 +304,21 @@ class AnalystAgent(BaseAgent):
                     event_copy["narrative"] = event_copy["narrative"][:500] + "... [truncated]"
                 simplified_events[event_name] = event_copy
             
+            variables = {
+                "company": company,
+                "num_events": len(simplified_events),
+                "events_synthesis": json.dumps(simplified_events, indent=2)
+            }
+            
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="company_analysis",
+                variables=variables
+            )
+            
             input_message = [
                 ("system", system_prompt),
-                ("human", f"Company: {company}\nNumber of Analyzed Events: {len(simplified_events)}\n\nEvent Syntheses:\n{json.dumps(simplified_events, indent=2)}\n\nGenerate a comprehensive forensic assessment of {company}.")
+                ("human", human_prompt)
             ]
             
             response = await llm_provider.generate_text(input_message, model_name=self.config.get("forensic_analysis", {}).get("model"))

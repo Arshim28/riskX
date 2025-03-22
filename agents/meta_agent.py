@@ -34,11 +34,21 @@ class MetaAgent(BaseAgent):
         
         llm_provider = await get_llm_provider()
         
-        system_prompt = self.prompt_manager.get_prompt("research_quality_eval")
+        variables = {
+            "company": company,
+            "industry": industry,
+            "research_results": json.dumps(research_results)
+        }
+        
+        system_prompt, human_prompt = self.prompt_manager.get_prompt(
+            agent_name=self.name,
+            operation="research_quality_eval",
+            variables=variables
+        )
         
         input_message = [
             ("system", system_prompt),
-            ("human", f"Company: {company}\nIndustry: {industry}\nResearch Results: {json.dumps(research_results)}\n\nEvaluate the quality of these research results.")
+            ("human", human_prompt)
         ]
         
         response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("evaluation"))
@@ -56,17 +66,29 @@ class MetaAgent(BaseAgent):
         
         llm_provider = await get_llm_provider()
         
-        system_prompt = self.prompt_manager.get_prompt("research_gaps_identification")
-        
         previous_queries = []
         for plan in previous_research_plans:
             query_cats = plan.get("query_categories", {})
             for cat, desc in query_cats.items():
                 previous_queries.append(f"{cat}: {desc}")
         
+        variables = {
+            "company": company,
+            "industry": industry,
+            "event_name": event_name,
+            "event_data": json.dumps(event_data),
+            "previous_queries": json.dumps(previous_queries)
+        }
+        
+        system_prompt, human_prompt = self.prompt_manager.get_prompt(
+            agent_name=self.name,
+            operation="research_gaps_identification",
+            variables=variables
+        )
+        
         input_message = [
             ("system", system_prompt),
-            ("human", f"Company: {company}\nIndustry: {industry}\nEvent: {event_name}\nEvent Analysis: {json.dumps(event_data)}\nPrevious Research Plans: {json.dumps(previous_queries)}\n\nAssess whether the event is fully understood and identify any necessary research gaps.")
+            ("human", human_prompt)
         ]
         
         response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("planning"))
@@ -97,17 +119,21 @@ class MetaAgent(BaseAgent):
         
         llm_provider = await get_llm_provider()
         
-        system_prompt = self.prompt_manager.get_prompt("research_plan_creation")
-        
-        input_data = {
+        variables = {
             "company": company,
-            "research_gaps": research_gaps,
-            "previous_plans": previous_plans or []
+            "research_gaps": json.dumps(research_gaps),
+            "previous_plans": json.dumps(previous_plans or [])
         }
+        
+        system_prompt, human_prompt = self.prompt_manager.get_prompt(
+            agent_name=self.name,
+            operation="research_plan_creation",
+            variables=variables
+        )
         
         input_message = [
             ("system", system_prompt),
-            ("human", f"Create a comprehensive research plan for investigating {company} based on the following gaps and any previous plans:\n{json.dumps(input_data, indent=2)}")
+            ("human", human_prompt)
         ]
         
         response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("planning"))
@@ -132,11 +158,20 @@ class MetaAgent(BaseAgent):
         
         llm_provider = await get_llm_provider()
         
-        system_prompt = self.prompt_manager.get_prompt("analysis_guidance")
+        variables = {
+            "company": company,
+            "research_results": json.dumps(research_results)
+        }
+        
+        system_prompt, human_prompt = self.prompt_manager.get_prompt(
+            agent_name=self.name,
+            operation="analysis_guidance",
+            variables=variables
+        )
         
         input_message = [
             ("system", system_prompt),
-            ("human", f"Company: {company}\nResearch Results: {json.dumps(research_results)}\n\nGenerate analysis guidance for {company} based on these research results.")
+            ("human", human_prompt)
         ]
         
         response = await llm_provider.generate_text(input_message, model_name=self.config.get("models", {}).get("planning"))
