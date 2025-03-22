@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import os
 import asyncio
 import argparse
@@ -7,24 +6,18 @@ import sys
 import json
 import time
 
-# Add the project root to the Python path if needed
-# Adjust for being in the tests directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import and set up logging first
 from utils.logging import setup_logging, get_logger
-# Initialize logging early
 setup_logging("rag_test", level="INFO")
 logger = get_logger("rag_test")
 
-# Now import the rest
 from tools.ocr_vector_store_tool import OCRVectorStoreTool
 from utils.llm_provider import init_llm_provider
 from utils.configuration import load_config, validate_config, GOOGLE_API_KEY, MISTRAL_API_KEY
 
 
 async def main():
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description="Test RAG capabilities with OCRVectorStoreTool")
     parser.add_argument("--pdf", type=str, help="Path to PDF file to process")
     parser.add_argument("--question", type=str, help="Question to ask about the document")

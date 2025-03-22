@@ -1,5 +1,5 @@
 from utils.logging import setup_logging, get_logger
-from utils.llm_provider import LLMProvider
+from utils.llm_provider import LLMProvider, init_llm_provider, get_llm_provider
 from utils.prompt_manager import PromptManager
 from utils.text_chunk import TextChunk
 from utils.utils import (
@@ -24,5 +24,7 @@ __all__ = [
     'get_timestamp',
     'sanitize_filename',
     'LLMProvider',
-    'PromptManager'
+    'PromptManager',
+    'init_llm_provider',
+    'get_llm_provider'
 ]
