@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from typing import Dict, List, Any, Tuple, Optional, Union, Annotated, TypedDict, Literal, Set
+from typing import Dict, List, Any, Tuple, Optional, Union, Annotated, TypedDict, Literal, Set, Callable, Type
 from datetime import datetime
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.graph import CompiledGraph
 
+from base.base_agents import BaseAgent
 from base.base_graph import BaseGraph, GraphConfig
 from utils.logging import get_logger, setup_logging
 from utils.llm_provider import init_llm_provider, get_llm_provider
@@ -138,7 +139,37 @@ class EnhancedForensicWorkflow(BaseGraph):
         
         # Create the workflow graph
         self.graph = self.build_graph()
-        
+    
+    # Implementing abstract methods required by BaseGraph
+    def add_node(self, name: str, agent: Type[BaseAgent]) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_node method called directly on EnhancedForensicWorkflow for node {name}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        self.nodes[name] = agent
+    
+    def add_edge(self, source: str, target: str) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_edge method called directly on EnhancedForensicWorkflow from {source} to {target}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        if source not in self.edges:
+            self.edges[source] = []
+        self.edges[source].append(target)
+    
+    def add_conditional_edges(self, source: str, router: Callable) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_conditional_edges method called directly on EnhancedForensicWorkflow for source {source}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        self.conditional_edges[source] = router
+    
     def build_graph(self) -> CompiledGraph:
         """Build the enhanced workflow graph with parallel execution."""
         # State and workflow settings
@@ -207,7 +238,8 @@ class EnhancedForensicWorkflow(BaseGraph):
         # Add error handler to capture exceptions
         if self.config.get("enable_error_handling", True):
             workflow.add_node("error_handler", self.handle_error)
-            workflow.set_error_handler("error_handler")
+            # The following line is causing the error - commented out as set_error_handler doesn't exist
+            # workflow.set_error_handler("error_handler")
         
         # Compile graph
         memory_saver = MemorySaver()
