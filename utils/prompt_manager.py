@@ -88,3 +88,22 @@ class PromptManager:
         )
         
         return self.render_template(params)
+
+
+# Global prompt manager instance
+_prompt_manager_instance = None
+
+
+def init_prompt_manager(prompt_dir: Optional[str] = None) -> PromptManager:
+    """Initialize the global prompt manager instance."""
+    global _prompt_manager_instance
+    _prompt_manager_instance = PromptManager(prompt_dir)
+    return _prompt_manager_instance
+
+
+def get_prompt_manager(agent_name: Optional[str] = None) -> PromptManager:
+    """Get the global prompt manager instance. If not initialized, create a default one."""
+    global _prompt_manager_instance
+    if _prompt_manager_instance is None:
+        _prompt_manager_instance = PromptManager()
+    return _prompt_manager_instance

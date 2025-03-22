@@ -18,7 +18,7 @@ class ResearchAgent(BaseAgent):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-        self.prompt_manager = PromptManager()  # Direct initialization
+        self.prompt_manager = PromptManager()  
         self.search_tool = SearchTool(config.get("research", {}))
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))

@@ -53,7 +53,6 @@ MOCK_CLUSTERING_RESPONSE = {
 
 
 class MockPromptManager:
-    """Mock implementation of the PromptManager class"""
     def __init__(self, *args, **kwargs):
         pass
         
@@ -63,7 +62,6 @@ class MockPromptManager:
 
 
 class MockLLMProvider:
-    """Mock implementation of the LLMProvider class"""
     def __init__(self, *args, **kwargs):
         pass
         

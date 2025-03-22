@@ -7,6 +7,7 @@ from tools.embedding_tool import EmbeddingTool
 from tools.document_processor_tool import DocumentProcessorTool
 from tools.vector_store_tool import VectorStoreTool
 from tools.ocr_vector_store_tool import OCRVectorStoreTool
+from tools.content_parser_tool import ContentParserTool
 
 __all__ = [
     'SearchTool',
@@ -14,5 +15,6 @@ __all__ = [
     'EmbeddingTool',
     'DocumentProcessorTool',
     'VectorStoreTool',
-    'OCRVectorStoreTool'    
+    'OCRVectorStoreTool',
+    'ContentParserTool'
 ]
