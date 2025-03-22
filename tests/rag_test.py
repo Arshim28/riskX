@@ -14,7 +14,7 @@ logger = get_logger("rag_test")
 
 from tools.ocr_vector_store_tool import OCRVectorStoreTool
 from utils.llm_provider import init_llm_provider
-from utils.configuration import load_config, validate_config, GOOGLE_API_KEY, MISTRAL_API_KEY
+from utils.configuration import load_config, validate_config
 
 
 async def main():
@@ -64,10 +64,10 @@ async def main():
             "max_chunks_per_batch": 10  # Small batch size for testing
         },
         "ocr": {
-            "api_key": MISTRAL_API_KEY
+            "api_key": "MISTRAL_API_KEY_PLACEHOLDER"
         },
         "embedding": {
-            "api_key": GOOGLE_API_KEY,
+            "api_key": "GOOGLE_API_KEY_PLACEHOLDER",
             "model": "gemini-embedding-exp-03-07",
             "dimension": config_data["embedding_dimension"],
             "request_delay": config_data["request_delay"],
