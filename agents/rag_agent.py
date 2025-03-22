@@ -1,8 +1,8 @@
-# agents/rag_agent.py
-from typing import Dict, List, Any, Optional
-import json
-import asyncio
 import os
+import time
+import asyncio
+import json
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -34,6 +34,13 @@ class RAGAgent(BaseAgent):
         self.document_topics = {}
         self.last_session_id = None
         self.session_questions = {}
+    
+    # Override base methods to avoid AgentState validation errors
+    def _log_start(self, state: Dict[str, Any]) -> None:
+        self.logger.info(f"Starting {self.name} with state: {state}")
+    
+    def _log_completion(self, state: Dict[str, Any]) -> None:
+        self.logger.info(f"Completed {self.name} with state: {state}")
     
     async def initialize(self, vector_store_dir: Optional[str] = None) -> bool:
         if self.initialized and vector_store_dir is None:
@@ -159,9 +166,8 @@ class RAGAgent(BaseAgent):
                 if topic in self.document_topics:
                     filtered_docs.extend(self.document_topics[topic])
                     
-            if filtered_docs:
-                retrieval_params["filter_docs"] = filtered_docs
-                
+            # Always include filter_docs even if it's empty
+            retrieval_params["filter_docs"] = filtered_docs
             self.logger.info(f"Filtering retrieval to {len(filtered_docs)} documents from topics: {filter_topics}")
         
         result = await self.vector_store_tool.run(
@@ -209,32 +215,36 @@ class RAGAgent(BaseAgent):
                 history = [f"Q: {q['query']}" for q in prev_questions[-3:]]
                 conversation_history = "\n".join(history)
         
-        llm_provider = await get_llm_provider()
-        
-        variables = {
-            "query": query,
-            "context": context,
-            "num_sources": len(results),
-            "conversation_history": conversation_history
-        }
-        
-        system_prompt, human_prompt = self.prompt_manager.get_prompt(
-            agent_name=self.name,
-            operation="qa_template",
-            variables=variables
-        )
-        
-        input_message = [
-            ("system", system_prompt),
-            ("human", human_prompt)
-        ]
-        
-        response = await llm_provider.generate_text(
-            input_message, 
-            model_name=self.config.get("rag_agent", {}).get("model")
-        )
-        
-        return response.strip()
+        try:
+            llm_provider = await get_llm_provider()
+            
+            variables = {
+                "query": query,
+                "context": context,
+                "num_sources": len(results),
+                "conversation_history": conversation_history
+            }
+            
+            system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                agent_name=self.name,
+                operation="qa_template",
+                variables=variables
+            )
+            
+            input_message = [
+                ("system", system_prompt),
+                ("human", human_prompt)
+            ]
+            
+            response = await llm_provider.generate_text(
+                input_message, 
+                model_name=self.config.get("rag_agent", {}).get("model", self.config.get("models", {}).get("model"))
+            )
+            
+            return response.strip()
+        except Exception as e:
+            self.logger.error(f"Error generating response: {str(e)}")
+            return "I encountered an error while generating a response. Please try again."
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def list_topics(self) -> Dict[str, Any]:
@@ -312,7 +322,7 @@ class RAGAgent(BaseAgent):
             
             response = await llm_provider.generate_text(
                 input_message, 
-                model_name=self.config.get("rag_agent", {}).get("model")
+                model_name=self.config.get("rag_agent", {}).get("model", self.config.get("models", {}).get("model"))
             )
             
             try:
@@ -416,7 +426,7 @@ class RAGAgent(BaseAgent):
         
         response = await llm_provider.generate_text(
             input_message, 
-            model_name=self.config.get("rag_agent", {}).get("model")
+            model_name=self.config.get("rag_agent", {}).get("model", self.config.get("models", {}).get("model"))
         )
         
         try:

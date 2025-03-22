@@ -1,29 +1,30 @@
 import os
 import json
 import asyncio
-from typing import Dict, List, Any, Tuple, Optional, Union, Annotated, TypedDict, Literal, Set
+from typing import Dict, List, Any, Tuple, Optional, Union, Annotated, TypedDict, Literal, Set, Callable, Type
 from datetime import datetime
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
-from langchain.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemoryCheckpoint
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.graph import CompiledGraph
 
+from base.base_agents import BaseAgent
 from base.base_graph import BaseGraph, GraphConfig
 from utils.logging import get_logger, setup_logging
 from utils.llm_provider import init_llm_provider, get_llm_provider
 from utils.prompt_manager import init_prompt_manager
 
 # Import agents
-from agents.meta_agent import EnhancedMetaAgent
+from agents.meta_agent import MetaAgent
 from agents.research_agent import ResearchAgent
 from agents.youtube_agent import YouTubeAgent
 from agents.corporate_agent import CorporateAgent
-from agents.analyst_agent import EnhancedAnalystAgent
+from agents.analyst_agent import AnalystAgent
 from agents.rag_agent import RAGAgent
-from agents.writer_agent import EnhancedWriterAgent
+from agents.writer_agent import WriterAgent
 
 
 class WorkflowState(TypedDict):
@@ -111,13 +112,13 @@ class EnhancedForensicWorkflow(BaseGraph):
         init_prompt_manager()
         
         # Initialize agents
-        self.meta_agent = EnhancedMetaAgent(self.config)
+        self.meta_agent = MetaAgent(self.config)
         self.research_agent = ResearchAgent(self.config)
         self.youtube_agent = YouTubeAgent(self.config)
         self.corporate_agent = CorporateAgent(self.config)
-        self.analyst_agent = EnhancedAnalystAgent(self.config)
+        self.analyst_agent = AnalystAgent(self.config)
         self.rag_agent = RAGAgent(self.config)
-        self.writer_agent = EnhancedWriterAgent(self.config)
+        self.writer_agent = WriterAgent(self.config)
         
         # Initialize agent mapping
         self.agents = {
@@ -138,7 +139,37 @@ class EnhancedForensicWorkflow(BaseGraph):
         
         # Create the workflow graph
         self.graph = self.build_graph()
-        
+    
+    # Implementing abstract methods required by BaseGraph
+    def add_node(self, name: str, agent: Type[BaseAgent]) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_node method called directly on EnhancedForensicWorkflow for node {name}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        self.nodes[name] = agent
+    
+    def add_edge(self, source: str, target: str) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_edge method called directly on EnhancedForensicWorkflow from {source} to {target}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        if source not in self.edges:
+            self.edges[source] = []
+        self.edges[source].append(target)
+    
+    def add_conditional_edges(self, source: str, router: Callable) -> None:
+        """Implementation of abstract method from BaseGraph."""
+        self.logger.warning(
+            f"add_conditional_edges method called directly on EnhancedForensicWorkflow for source {source}. "
+            "This is not the intended usage pattern as the graph is pre-built."
+        )
+        # No-op implementation to satisfy abstract class requirement
+        self.conditional_edges[source] = router
+    
     def build_graph(self) -> CompiledGraph:
         """Build the enhanced workflow graph with parallel execution."""
         # State and workflow settings
@@ -207,11 +238,12 @@ class EnhancedForensicWorkflow(BaseGraph):
         # Add error handler to capture exceptions
         if self.config.get("enable_error_handling", True):
             workflow.add_node("error_handler", self.handle_error)
-            workflow.set_error_handler("error_handler")
+            # The following line is causing the error - commented out as set_error_handler doesn't exist
+            # workflow.set_error_handler("error_handler")
         
         # Compile graph
-        memory = MemoryCheckpoint()
-        return workflow.compile(checkpointer=memory)
+        memory_saver = MemorySaver()
+        return workflow.compile(checkpointer=memory_saver)
     
     def create_agent_node(self, agent, agent_name: str):
         """Create a function that runs an agent and handles async execution."""
@@ -485,7 +517,7 @@ class EnhancedForensicWorkflow(BaseGraph):
                 event_data = task["event_data"]
                 
                 # Clone the analyst agent for this task
-                task_agent = EnhancedAnalystAgent(self.config)
+                task_agent = AnalystAgent(self.config)
                 
                 # Create task state
                 task_state = {
