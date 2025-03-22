@@ -44,7 +44,7 @@ async def test_fetch_company_info(agent):
         db_result = MagicMock()
         db_result.success = True
         db_result.data = {"name": "Test Company", "industry": "Technology"}
-        mock_postgres.run.return_value = db_result
+        mock_postgres.run = AsyncMock(return_value=db_result)
         
         result = await agent.fetch_company_info("Test Company")
         
@@ -61,7 +61,7 @@ async def test_fetch_company_info(agent):
         db_result = MagicMock()
         db_result.success = False
         db_result.data = None
-        mock_postgres.run.return_value = db_result
+        mock_postgres.run = AsyncMock(return_value=db_result)
         
         mock_llm = AsyncMock()
         mock_llm.generate_text.return_value = '{"name": "Test Company", "industry": "Technology", "founded": 2010}'
@@ -91,7 +91,7 @@ async def test_analyze_financial_statements(agent):
                 {"quarter": "Q2", "revenue": 1100, "profit": 110}
             ]
         }
-        mock_nse.run.return_value = nse_result
+        mock_nse.run = AsyncMock(return_value=nse_result)
         
         mock_llm = AsyncMock()
         mock_llm.generate_text.return_value = '''

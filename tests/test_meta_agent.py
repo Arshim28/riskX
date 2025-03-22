@@ -97,7 +97,7 @@ async def test_get_next_agents(agent, state):
 
 @pytest.mark.asyncio
 async def test_run_first_iteration(agent, state):
-    with patch.object(agent, "_load_preliminary_guidelines", return_value={"objective": "Test"}), \
+    with patch.object(agent, "_load_preliminary_guidelines", AsyncMock(return_value={"objective": "Test"})), \
          patch.object(agent, "generate_workflow_status", return_value={}), \
          patch.object(agent, "save_workflow_status"):
         
@@ -115,7 +115,7 @@ async def test_run_later_iteration(agent, state):
     state["goto"] = "meta_agent"
     state["research_agent_status"] = "DONE"
     
-    with patch.object(agent, "manage_workflow", return_value=(state, "analyst_agent")):
+    with patch.object(agent, "manage_workflow", AsyncMock(return_value=(state, "analyst_agent"))):
         result = await agent.run(state)
         
         assert result["goto"] == "analyst_agent"

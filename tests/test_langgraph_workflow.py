@@ -292,7 +292,8 @@ async def test_analyst_pool_node(workflow):
         mock_future2 = MagicMock()
         mock_future2.result.return_value = ("Event 2", {"status": "complete"})
         
-        mock_executor.submit.side_effect = [mock_future1, mock_future2]
+        # Make sure submit method returns the mock futures
+        mock_executor.submit = MagicMock(side_effect=[mock_future1, mock_future2])
         
         # Run the node
         result = await workflow.analyst_pool_node(state)

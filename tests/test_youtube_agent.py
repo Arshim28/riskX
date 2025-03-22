@@ -11,7 +11,7 @@ from agents.youtube_agent import YouTubeAgent, VideoData
 def config():
     return {
         "youtube": {
-            "youtube_api_key": "test_api_key"
+            "youtube_api_key": "YOUTUBE_API_KEY_PLACEHOLDER"
         },
         "models": {
             "analysis": "gemini-2.0-pro",
@@ -61,7 +61,7 @@ async def test_search_videos(agent):
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.data = {"videos": [{"id": "test_id", "title": "Test Video"}]}
-        mock_tool.run.return_value = mock_result
+        mock_tool.run = AsyncMock(return_value=mock_result)
         
         result = await agent.search_videos("Test Company fraud", max_results=5)
         
@@ -79,7 +79,7 @@ async def test_get_transcript(agent):
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.data = {"transcript": "This is a test transcript."}
-        mock_tool.run.return_value = mock_result
+        mock_tool.run = AsyncMock(return_value=mock_result)
         
         result = await agent.get_transcript("test_id")
         
@@ -92,15 +92,15 @@ async def test_get_transcript(agent):
 
 @pytest.mark.asyncio
 async def test_analyze_transcript(agent, video_data):
-    with patch("utils.llm_provider.get_llm_provider") as mock_provider:
+    with patch("utils.llm_provider.get_llm_provider", AsyncMock()) as mock_provider:
         mock_llm = AsyncMock()
-        mock_llm.generate_text.return_value = """
+        mock_llm.generate_text = AsyncMock(return_value="""
         {
             "forensic_relevance": "medium",
             "red_flags": ["Potential accounting irregularity"],
             "summary": "The video discusses financial reporting issues."
         }
-        """
+        """)
         mock_provider.return_value = mock_llm
         
         result = await agent.analyze_transcript(video_data, "Test Company")
@@ -147,9 +147,9 @@ async def test_generate_video_summary(agent):
     }
     videos_data[1].relevance_score = 0.3
     
-    with patch("utils.llm_provider.get_llm_provider") as mock_provider:
+    with patch("utils.llm_provider.get_llm_provider", AsyncMock()) as mock_provider:
         mock_llm = AsyncMock()
-        mock_llm.generate_text.return_value = """
+        mock_llm.generate_text = AsyncMock(return_value="""
         {
             "overall_assessment": "Some concerns found",
             "key_insights": ["The company has been mentioned in negative context"],
@@ -157,7 +157,7 @@ async def test_generate_video_summary(agent):
             "notable_videos": ["test_id_1"],
             "summary": "Analysis reveals potential issues that warrant further investigation."
         }
-        """
+        """)
         mock_provider.return_value = mock_llm
         
         result = await agent.generate_video_summary(videos_data, "Test Company")
@@ -173,11 +173,11 @@ async def test_generate_video_summary(agent):
 
 @pytest.mark.asyncio
 async def test_run(agent, state):
-    with patch.object(agent, "search_videos") as mock_search, \
-         patch.object(agent, "get_channel_videos") as mock_channel, \
-         patch.object(agent, "get_transcript") as mock_transcript, \
-         patch.object(agent, "analyze_transcript") as mock_analyze, \
-         patch.object(agent, "generate_video_summary") as mock_summary:
+    with patch.object(agent, "search_videos", AsyncMock()) as mock_search, \
+         patch.object(agent, "get_channel_videos", AsyncMock()) as mock_channel, \
+         patch.object(agent, "get_transcript", AsyncMock()) as mock_transcript, \
+         patch.object(agent, "analyze_transcript", AsyncMock()) as mock_analyze, \
+         patch.object(agent, "generate_video_summary", AsyncMock()) as mock_summary:
         
         # Set up mock returns
         mock_search.return_value = [

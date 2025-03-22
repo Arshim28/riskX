@@ -69,7 +69,7 @@ async def test_initialize(agent):
         result_mock = MagicMock()
         result_mock.success = True
         result_mock.data = {"chunks": 100}
-        mock_tool.run.return_value = result_mock
+        mock_tool.run = AsyncMock(return_value=result_mock)
         
         success = await agent.initialize("/path/to/store")
         
@@ -92,7 +92,7 @@ async def test_add_document(agent):
         
         result_mock = MagicMock()
         result_mock.success = True
-        mock_tool.run.return_value = result_mock
+        mock_tool.run = AsyncMock(return_value=result_mock)
         
         success = await agent.add_document("/path/to/document.pdf", ["topic1", "topic2"])
         
@@ -116,7 +116,7 @@ async def test_answer_query(agent, retrieval_results):
     agent.loaded_documents = ["document1.pdf", "document2.pdf"]
     
     with patch.object(agent, "vector_store_tool") as mock_tool:
-        mock_tool.run.return_value = MagicMock(success=True, data=retrieval_results)
+        mock_tool.run = AsyncMock(return_value=MagicMock(success=True, data=retrieval_results))
         
         result = await agent.answer_query(
             "What are the financial issues?",

@@ -141,12 +141,12 @@ async def test_generate_executive_summary(agent, state):
 async def test_run(agent, state, template):
     agent.templates["standard_forensic_report"] = template
     
-    with patch.object(agent, "select_template", return_value=template), \
-         patch.object(agent, "generate_sections_concurrently") as mock_generate, \
-         patch.object(agent, "generate_meta_feedback") as mock_feedback, \
-         patch.object(agent, "apply_iterative_improvements") as mock_improve, \
-         patch.object(agent, "generate_executive_briefing") as mock_briefing, \
-         patch.object(agent, "save_debug_report") as mock_save:
+    with patch.object(agent, "select_template", AsyncMock(return_value=template)), \
+         patch.object(agent, "generate_sections_concurrently", AsyncMock()) as mock_generate, \
+         patch.object(agent, "generate_meta_feedback", AsyncMock()) as mock_feedback, \
+         patch.object(agent, "apply_iterative_improvements", AsyncMock()) as mock_improve, \
+         patch.object(agent, "generate_executive_briefing", AsyncMock()) as mock_briefing, \
+         patch.object(agent, "save_debug_report", AsyncMock()) as mock_save:
         
         mock_generate.return_value = {
             "executive_summary": "# Executive Summary\n\nThis is a summary.",

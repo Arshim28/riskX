@@ -10,7 +10,7 @@ from base.base_tools import ToolResult
 
 
 # Mock data for tests
-YOUTUBE_API_KEY = "test_api_key"
+YOUTUBE_API_KEY = "YOUTUBE_API_KEY_PLACEHOLDER"
 TEST_VIDEO_ID = "abc12345"
 TEST_CHANNEL_ID = "channel123"
 TEST_CHANNEL_NAME = "Test Channel"
@@ -205,9 +205,10 @@ def mock_transcript_api():
 async def youtube_tool(mock_logger, mock_youtube_client):
     """Fixture to create a YouTubeTool with mocked dependencies"""
     
+    # Use a placeholder API key for testing
     config = {
         "youtube": {
-            "youtube_api_key": YOUTUBE_API_KEY,
+            "youtube_api_key": "YOUTUBE_API_KEY_PLACEHOLDER",
             "retry_limit": 1,  # Low values for testing
             "multiplier": 0,
             "min_wait": 0,
@@ -236,6 +237,9 @@ async def youtube_tool(mock_logger, mock_youtube_client):
 @pytest.mark.asyncio
 async def test_get_transcript(youtube_tool):
     """Test fetching video transcript"""
+    # Make the transcript get_transcript method awaitable
+    youtube_tool.transcriptor.get_transcript = AsyncMock(return_value=MOCK_TRANSCRIPT_RESPONSE)
+    
     # Call the method directly
     transcript = await youtube_tool.get_transcript(TEST_VIDEO_ID)
     

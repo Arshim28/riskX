@@ -64,9 +64,12 @@ def agent(config):
 
 @pytest.mark.asyncio
 async def test_generate_queries(agent):
+    # Directly use the mock response from test_utils.py
+    from tests.test_utils import MOCK_LLM_RESPONSES
+    
     with patch("utils.llm_provider.get_llm_provider") as mock_provider:
         mock_llm = AsyncMock()
-        mock_llm.generate_text.return_value = '{"category1": ["query1", "query2"]}'
+        mock_llm.generate_text.return_value = MOCK_LLM_RESPONSES["query_generation"]
         mock_provider.return_value = mock_llm
         
         result = await agent.generate_queries(
@@ -77,25 +80,30 @@ async def test_generate_queries(agent):
         )
         
         assert isinstance(result, dict)
-        assert "category1" in result
-        assert len(result["category1"]) == 2
+        assert "financial" in result
+        assert "regulatory" in result
+        assert len(result["financial"]) > 0
+        assert len(result["regulatory"]) > 0
         
         mock_llm.generate_text.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_group_results(agent, search_results):
+    # Directly use the mock response from test_utils.py
+    from tests.test_utils import MOCK_LLM_RESPONSES
+    
     with patch("utils.llm_provider.get_llm_provider") as mock_provider:
         mock_llm = AsyncMock()
-        mock_llm.generate_text.return_value = '{"Event 1": [0], "Event 2": [1]}'
+        mock_llm.generate_text.return_value = MOCK_LLM_RESPONSES["article_clustering"]
         mock_provider.return_value = mock_llm
         
         result = await agent.group_results("Test Company", search_results, "Technology")
         
         assert isinstance(result, dict)
         assert len(result) == 2
-        assert "Event 1" in result
-        assert "Event 2" in result
+        assert "Financial Irregularities Investigation (2023) - High" in result
+        assert "Quarterly Financial Results (Q2 2023) - Low" in result
         
         mock_llm.generate_text.assert_called_once()
 

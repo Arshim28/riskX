@@ -89,7 +89,7 @@ async def test_process_article(agent):
         mock_parser_result = MagicMock()
         mock_parser_result.success = True
         mock_parser_result.data = {"content": "Test content", "metadata": {}}
-        mock_parser.run.return_value = mock_parser_result
+        mock_parser.run = AsyncMock(return_value=mock_parser_result)
         
         mock_extract.return_value = {"allegations": "Test"}
         
