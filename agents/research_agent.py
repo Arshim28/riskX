@@ -22,7 +22,7 @@ class ResearchAgent(BaseAgent):
         self.prompt_manager = get_prompt_manager()  
         self.search_tool = SearchTool(config.get("research", {}))
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_queries(self, company: str, industry: str, research_plan: Dict, query_history: List[Dict[str, List]]) -> Dict[str, List[str]]:
         self.logger.info(f"Generating queries based on research plan: {research_plan.get('objective', 'No objective')}")
         
@@ -67,7 +67,7 @@ class ResearchAgent(BaseAgent):
         
         return query_categories
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def group_results(self, company: str, articles: List[SearchResult], industry: str = None) -> Dict[str, List[Dict]]:
         if not articles:
             self.logger.info("No articles to cluster")

@@ -1,5 +1,5 @@
 from tools.search_tool import SearchTool
-#from tools.nse_tool import NSETool
+from tools.nse_tool import NSETool
 from tools.postgres_tool import PostgresTool
 from tools.youtube_tool import YoutubeTool
 from tools.ocr_tool import OcrTool
@@ -18,5 +18,6 @@ __all__ = [
     'DocumentProcessorTool',
     'VectorStoreTool',
     'OCRVectorStoreTool',
-    'ContentParserTool'
+    'ContentParserTool',
+    'NSETool'
 ]

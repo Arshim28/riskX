@@ -65,7 +65,7 @@ class MetaAgent(BaseAgent):
         
         self.last_error = None
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def evaluate_research_quality(self, company: str, industry: str, research_results: Dict) -> Dict:
         if not research_results:
             self.logger.warning(f"No research results available for {company}")
@@ -108,7 +108,7 @@ class MetaAgent(BaseAgent):
         
         return assessment
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def identify_research_gaps(self, company: str, industry: str, event_name: str, 
                                event_data: List[Dict], previous_research_plans: List[Dict]) -> Dict[str, str]:
         self.logger.info(f"Identifying research gaps for event: {event_name}")
@@ -160,7 +160,7 @@ class MetaAgent(BaseAgent):
             
         return gaps
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def create_research_plan(self, company: str, research_gaps: Union[List[Dict], Dict], previous_plans: List[Dict] = None) -> Dict:
         if not research_gaps:
             self.logger.warning(f"No research gaps provided for {company}, returning empty plan")
@@ -196,7 +196,7 @@ class MetaAgent(BaseAgent):
         
         return plan
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_analysis_guidance(self, company: str, research_results: Dict) -> Dict:
         if not research_results:
             self.logger.warning(f"No research results available for {company} to generate guidance")

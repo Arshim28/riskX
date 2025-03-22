@@ -76,7 +76,7 @@ class AnalystAgent(BaseAgent):
             "timelines_created": {}
         }
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def extract_forensic_insights(self, company: str, title: str, content: str, event_name: str) -> Optional[Dict]:
         if not content or len(content.strip()) < 100:
             return None
@@ -217,7 +217,7 @@ class AnalystAgent(BaseAgent):
         self.processed_tasks.extend(tasks)
         return results
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def synthesize_event_insights(self, company: str, event_name: str, insights_list: List[Dict]) -> Dict:
         if not insights_list or len(insights_list) == 0:
             return None
@@ -300,7 +300,7 @@ class AnalystAgent(BaseAgent):
         
         return synthesis
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_company_analysis(self, company: str, events_synthesis: Dict) -> Dict:
         self.logger.info(f"Generating comprehensive analysis for {company} based on {len(events_synthesis)} events")
         

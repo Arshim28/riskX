@@ -30,7 +30,7 @@ class YouTubeAgent(BaseAgent):
         self.prompt_manager = get_prompt_manager()
         self.youtube_tool = YoutubeTool(config.get("youtube", {}))
         
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_videos(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         self.logger.info(f"Searching YouTube for: {query}")
         
@@ -46,7 +46,7 @@ class YouTubeAgent(BaseAgent):
             
         return search_result.data.get("videos", [])
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_transcript(self, video_id: str) -> Optional[str]:
         self.logger.info(f"Getting transcript for video: {video_id}")
         
@@ -61,7 +61,7 @@ class YouTubeAgent(BaseAgent):
             
         return transcript_result.data.get("transcript")
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def analyze_transcript(self, video_data: VideoData, company: str) -> Dict[str, Any]:
         self.logger.info(f"Analyzing transcript for video: {video_data.video_id}")
         
@@ -123,7 +123,7 @@ class YouTubeAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_channel_videos(self, channel_name: str, max_results: int = 20) -> List[Dict[str, Any]]:
         self.logger.info(f"Getting videos from channel: {channel_name}")
         
@@ -181,7 +181,7 @@ class YouTubeAgent(BaseAgent):
         
         return list(unique_videos.values())
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_video_summary(self, videos_data: List[VideoData], company: str) -> Dict[str, Any]:
         self.logger.info(f"Generating video summary for {len(videos_data)} videos about {company}")
         

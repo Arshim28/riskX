@@ -188,7 +188,7 @@ class WriterAgent(BaseAgent):
         self.logger.info(f"Selected {len(top_events)} top events and {len(other_events)} other events")
         return top_events, other_events
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_detailed_event_section(self, company: str, event_name: str, event_data: List[Dict], template_section: Dict) -> str:
         self.logger.info(f"Generating detailed analysis for event: {event_name}")
         
@@ -234,7 +234,7 @@ class WriterAgent(BaseAgent):
         
         return f"## {event_name}\n\n{detailed_section}\n\n"
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_other_events_section(self, company: str, events: Dict, event_metadata: Dict, other_event_names: List[str], template_section: Dict) -> str:
         if not other_event_names:
             return ""
@@ -293,7 +293,7 @@ class WriterAgent(BaseAgent):
         
         return f"# Other Notable Events\n\n{other_events_section}\n\n"
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_executive_summary(self, company: str, top_events: List[str], all_events: Dict, event_metadata: Dict, template_section: Dict) -> str:
         self.logger.info(f"Generating executive summary with focus on top {len(top_events)} events")
         
@@ -353,7 +353,7 @@ class WriterAgent(BaseAgent):
         
         return f"# Executive Summary\n\n{summary}\n\n"
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_pattern_section(self, company: str, top_events: List[str], event_metadata: Dict, template_section: Dict) -> str:
         if len(top_events) <= 1:
             return ""
@@ -399,7 +399,7 @@ class WriterAgent(BaseAgent):
         
         return f"# Pattern Recognition\n\n{pattern_section}\n\n"
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_recommendations(self, company: str, top_events: List[str], template_section: Dict) -> str:
         self.logger.info(f"Generating recommendations based on {len(top_events)} top events")
         
@@ -437,7 +437,7 @@ class WriterAgent(BaseAgent):
         
         return f"# Recommendations\n\n{recommendations}\n\n"
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def revise_section(self, company: str, section_name: str, current_content: str, feedback: str) -> str:
         self.logger.info(f"Revising section '{section_name}' based on feedback")
         
@@ -621,7 +621,7 @@ class WriterAgent(BaseAgent):
             
         return debug_filename
 
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_meta_feedback(self, company: str, full_report: str) -> Dict[str, Any]:
         self.logger.info(f"Generating meta feedback for {company} report")
         
@@ -675,7 +675,7 @@ class WriterAgent(BaseAgent):
         
         return feedback
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_executive_briefing(self, company: str, full_report: str) -> str:
         self.logger.info(f"Generating executive briefing for {company}")
         

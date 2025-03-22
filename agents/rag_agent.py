@@ -129,7 +129,7 @@ class RAGAgent(BaseAgent):
             self.logger.error(f"Failed to save vector store: {result.error}")
             return False
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def answer_query(self, query: str, session_id: Optional[str] = None, 
                         filter_topics: Optional[List[str]] = None, k: Optional[int] = None) -> Dict[str, Any]:
         if not self.initialized:
@@ -179,7 +179,7 @@ class RAGAgent(BaseAgent):
                 "error": f"Query processing failed: {result.error}"
             }
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_response(self, query: str, retrieval_results: Dict[str, Any], 
                             session_id: Optional[str] = None) -> str:
         if not retrieval_results.get("success", False):
@@ -236,7 +236,7 @@ class RAGAgent(BaseAgent):
         
         return response.strip()
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def list_topics(self) -> Dict[str, Any]:
         topic_stats = {}
         
@@ -252,7 +252,7 @@ class RAGAgent(BaseAgent):
             "total_topics": len(topic_stats)
         }
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def categorize_documents(self) -> Dict[str, Any]:
         if not self.initialized or not self.loaded_documents:
             return {
@@ -360,7 +360,7 @@ class RAGAgent(BaseAgent):
                 "loaded_documents": self.loaded_documents
             }
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_topic_report(self, topic: str) -> Dict[str, Any]:
         if topic not in self.document_topics:
             return {

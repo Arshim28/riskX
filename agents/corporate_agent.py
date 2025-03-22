@@ -30,7 +30,7 @@ class CorporateAgent(BaseAgent):
         self.management_data = {}
         self.market_data = {}
         
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def fetch_company_info(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Fetching company information for {company}")
         
@@ -86,7 +86,7 @@ class CorporateAgent(BaseAgent):
         self.company_data = company_info
         return company_info
         
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def analyze_financial_statements(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Analyzing financial statements for {company}")
         
@@ -138,7 +138,7 @@ class CorporateAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def check_regulatory_filings(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Checking regulatory filings for {company}")
         
@@ -210,7 +210,7 @@ class CorporateAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def analyze_management_team(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Analyzing management team for {company}")
         
@@ -303,7 +303,7 @@ class CorporateAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def analyze_market_data(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Analyzing market data for {company}")
         
@@ -367,7 +367,7 @@ class CorporateAgent(BaseAgent):
         
         return analysis_result
     
-    @retry(stop_after_attempt=3, wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_corporate_report(self, company: str) -> Dict[str, Any]:
         self.logger.info(f"Generating corporate report for {company}")
         
