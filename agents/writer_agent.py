@@ -34,14 +34,10 @@ class WriterAgent(BaseAgent):
         """
         self.logger.info(f"Selecting top events from {len(events)} total events")
         
-        # Create list of (event_name, score) tuples with proper default handling
         event_scores = []
         for name in events.keys():
-            # Get metadata with fallback to empty dict
             meta = event_metadata.get(name, {})
-            # Get importance_score with fallback to 0
             score = meta.get("importance_score", 0)
-            # Use a secondary sorting key (event name) for consistent ordering of tied scores
             event_scores.append((name, score, name))
         
         # Sort by score (descending) and then by name (for consistent tie-breaking)
