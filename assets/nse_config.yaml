@@ -1,0 +1,417 @@
+Announcements:
+  endpoint: corporate-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements
+  description: >
+    Returns corporate announcements by companies listed on NSE.
+    You can either just get the announcements by dates or for a particular company
+    but when doing it for a company you need to pass in symbol as well as issuer
+    which is the company name.
+
+AnnXBRL:
+  endpoint: XBRL-announcements
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+    type: announcements
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements-xbrl
+  description: >
+    Returns Announcements only of a certain kind based on the type parameter, this is generally used for information
+    which is reported in XRBL format. Information can be retrieved by date or for a particular company or a combination of both.
+    use the folloeing type to announcement mapping based on the kind of announcement you are looking for:
+    - announcements: Change in Directors/KMP/SMP/Auditors/RTA
+    - outcome: Outcome of Board Meeting
+    - Reg30: Restructuring - Regulation 30 (Reports major restructuring of any kind)
+    - annFraud: Fraudt/Default/Arrest PARA A (disclosure regarding fradulent activities, financial defaults or arrests involving the company)
+    - cdr: Corporate Debt Restructuring
+    - shm: Notice of Shareholders Meeting
+    - fundRaising: Issuance/Allotment/Alteration/Restriction on transferability of securities - PARA A (disclosure on activities like fund raising, splits, consolidations etc)
+    - agr: Agreements/Contracts/Arrangements/MOU - PARA A (disclosure on agreements, contracts or arrangements)
+    - annOts: One time settlement/Inter-Creditors Agreement 
+    - CIRP: Corporate Insolvency Resolution Process
+
+AnnualReports:
+  endpoint: annual-reports
+  params:
+    index: equities
+    symbol: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-annual-reports
+  description: >
+    Returns the links either .pdf or .zip files of annual reports of the companies listed on NSE.
+
+BussinessSustainabilitiyReport:
+  endpoint: corporate-bussiness-sustainabilitiy
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports
+  description: >
+    Returns the links either .pdf or .zip files of Bussiness Sustainabilitiy reports of the companies listed on NSE. This report is available only from the year 2024.
+
+BoardMeetings:
+  endpoint: corporate-board-meetings
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-board-meetings
+  description: >
+    Returns information about board meeting of the company, it contains information like date and purpose. The function can be called just with a symbol and issuer to get information about 20 latest board meetings. It also accepts to and from date as arguments to get all meetings within the time frame.
+
+CorporateActions:
+  endpoint: corporates-corporateActions
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-actions
+  description: >
+    Return information about corporate actions for the given company. If from and to dates are not provided it will return the latest 20 corporate actions for the company. If the dates are provided it will return all the corporate actions within the time frame.
+
+credit_rating:
+  endpoint: corporate-credit-rating
+  params:
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/crd
+  description: >
+    Returns the credit rating of the company
+
+interest_Payment:
+  endpoint: corporate-interest-payment
+  params: 
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/ipd
+  description: >
+    Returns the interest payment details of the company
+
+redempay:
+  endpoint: corporate-redemption-payment
+  params: 
+    index: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database/rpd
+  description: >
+    Returns the redemption payment details of the company
+
+reg_60:
+  endpoint: corporate-reg60
+  params: 
+    index: ""
+    issuer: ""
+    from_date: ""
+    to_date: ""
+  referer: https://www.nseindia.com/companies-listing/debt-centralised-database
+  description: >
+    Returns information about payments like interest, dividends, or redemptions on non-convertible securities. If from and to dates are not provided it will return the latest 20 corporate actions for the company. If the dates are provided it will return all the corporate actions within the time frame.
+
+EventCalendar:
+  endpoint: event-calendar
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-event-calendar
+  description: >
+    Returns information about important information about upcoming corporate events and actions of the company.
+
+FinancialResults:
+  endpoint: corporates-financial-results
+  params:
+    index: equities
+    period: ""
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-financial-results
+  description: >
+    Returns the financial filing details of the company. The period can take the value Quaterly or Annual, It is a compulsory parameter. The from and to date are optional and if not provided it will return the latest 20 financial results of the company.
+
+LastFiveFincialResults:
+  endpoint: results-comparision
+  params:
+    symbol: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-financial-results-comparision
+  description: >
+    Returns details from the last 5 financial results of the company. 
+
+FIQIP:
+  endpoint: corporate-further-issues-qip
+  params:
+    index: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-QIP
+  description: >
+    Returns the Qualified Institutional Placement (QIP) details of the company. Takes as input index that can either be FIQIPIP for checking the In-Principle approval stage or FIQIPLS for checking the listed stage. You should ideally ask for both.
+
+FIFCCB:
+  endpoint: corporate-further-issues-fccb
+  params:
+    index: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-FCCB
+  description: >
+    Returns the Foreign Currency Convertible Bonds (FCCB) details of the company. Takes as input index that can either be FIFCCBIP for checking the In-Principle approval stage or FIFCCBLS for checking the listed stage. You should ideally ask for both.
+
+FIPREF:
+  endpoint: corporate-further-issues-pref
+  params:
+    index: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-PREF
+  description: >
+    Returns the Preference Shares details of the company. Takes as input index that can either be FIPREFIP for checking the In-Principle approval stage or FIPREFLS for checking the listed stage. You should ideally ask for both.
+
+FIRI:
+  endpoint: corporate-further-issues-ri
+  params:
+    index: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-RI
+  description: >
+    Returns the Rights Issue details of the company. Takes as input index that can either be FIRIIP for checking the In-Principle approval stage or FIRILS for checking the listed stage. You should ideally ask for both.
+
+InsiderTrading:
+  endpoint: corporates-pit
+  params:
+    index: equities
+    to_date: ""
+    from_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-insider-trading
+  description: >
+    Returns the insider trading details of the company. The from and to date are optional and if not provided it will return the latest 20 insider trading details of the company.
+
+IntegratedFiling:
+  endpoint: integrated-filing-results
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-integrated-filing
+  description: >
+    Returns the integrated filed corporate givernance data of the company. It includes information about the composition of the Board of Directors, detailing executive and non-executive members, as well as independent directors. It outlines various board committees, such as Audit, Nomination and Remuneration, and Stakeholders Relationship committees, along with their composition and meeting details. The report also covers compliance with regulatory requirements, investor grievance handling, and any significant fines or penalties imposed on the company.
+
+IssuerOfferDocuments:
+  endpoint: corporates/offerdocs
+  params:
+    index: equities
+    company: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-offer-documents
+  description: >
+    Returns details of a corporate issuers documents, along with the corporate issuer report. 
+  active: False
+
+SchemeOfArrangement:
+  endpoint: corporates/offerdocs/arrangementscheme
+  params:
+    index: equities
+    issuer: ""
+    type: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-scheme-document
+  description: >
+    Returns information about scheme of arrangements which is a corporate restructuring mechanism that allows companies to reorganize their structure, assets, or liabilities. Issuer and type should be the same that is issuer.
+  active: False
+  
+InformationMemorandum: 
+  endpoint: corporates/offerdocs/arrangementscheme/infomemo
+  params: 
+    index: equities
+    issuer: ""
+    type: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-information-memorandum
+  description: >
+    Returns information aboout the information memorandum which is a document that outlines the terms of an agreement between two or more parties, covering the details of the transaction, such as the purchase price, payment terms, and any other relevant information.
+  active: False
+  
+RelatedPartyTransactions:
+  endpoint: related-party-transactions-master
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+    period_ended: all
+  referer: https://www.nseindia.com/companies-listing/related-party-transactions
+  description: >
+    Returns the related party transaction details for a company.
+  active: False
+
+SubstantialAcquisitionAndDisposal:
+  endpoint: corporate-sast-reg29
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-29
+  description: >
+    Returns the substantial acquisition and disposal details of the company. The from and to date are optional and if not provided it will return the latest 20 insider trading details of the company.
+
+DisclosureOfEncumberedShares:
+  endpoint: corporate-pledgedata-sast3132
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-31
+  description: >
+    Returns the disclosure of encumbered shares of the company. The from and to date are optional and if not provided it will return the latest 20 insider trading details of the company.
+
+PromoterNameList:
+  endpoint: corporate-pledgedata-sast3132
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-31
+  description: >
+    Returns the list of prompters of the company in a key called promoterNameList.
+  active: False 
+
+sast_pledged:
+  endpoint: corporate-pledgedata
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-pledged-data
+  description: >
+    Returns the pledged data of the company. 
+
+statementOfDeviation:
+  endpoint: statement-deviation-master
+  params:
+    index: equities
+    period_ended: all
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-statement-of-deviation-variation
+  description: >
+    Returns the statement of deviation of the company.
+  active: False
+
+InsiderTradingAnnual:
+  endpoint: corporate-IT-PIT-Annual
+  params:
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-pit-annual
+  description: >
+    Returns the insider trading details of the company for the year. The from and to date are optional and if not provided it will return the latest 20 insider trading disclosures of the company.
+
+SASTDisclousreReg29Promoters:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg29
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-29-promoters
+  description: >
+    Returns the SAST Disclousre of promoters of the company in accordance with regulation 29.
+  active: False
+
+SASTDisclousreReg29NonPromoters:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg29npr
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-29-non-promoters
+  description: >
+    Returns the SAST Disclousre of non-promoters of the company in accordance with regulation 29.
+  active: False
+
+DisclousreOfSchareHoldingReg31:
+  endpoint: corporate-shareholding-disclosure
+  params:
+    type: reg31
+    index: equities
+    from_date: ""
+    to_date: ""
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-31-event
+  description: >
+    Returns the Disclousre of Schare Holding of the company in accordance with regulation 31.
+
+SecretarialCompliance: 
+  endpoint: secretarial-camp
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-secretarial-compliance-report
+  description: >
+    Returns all the secretarial compliance report of the company. By default only the latest report is considered.
+  active: False
+
+ShareholderMeetings:
+  endpoint: postal-ballot
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-postal-ballot
+  description: >
+    Returns information about the shareholder meetings of the company.
+
+ShareholdingPatterns:
+  endpoint: corporate-share-holdings-master
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern
+  description: >
+    Returns the shareholding pattern history of the company.
+
+ShareholdingPatternDisclousreDocument:
+  endpoint: shareholding-patterns-sdd
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern-sdd
+  description: >
+    Returns the shareholding pattern disclousre document of the company. Might not be available for all companies.
+
+VotingResults:
+  endpoint: corporate-voting-results
+  params:
+    index: equities
+    symbol: ""
+    issuer: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-voting-results
+  description: >
+    Returns all the voting results of the company. 
+  active: False
