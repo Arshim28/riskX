@@ -1,6 +1,6 @@
 from tools.search_tool import SearchTool
 #from tools.nse_tool import NSETool
-#from tools.postgres_tool import PostgresTool
+from tools.postgres_tool import PostgresTool
 from tools.youtube_tool import YoutubeTool
 from tools.ocr_tool import OcrTool
 from tools.embedding_tool import EmbeddingTool
@@ -11,6 +11,7 @@ from tools.content_parser_tool import ContentParserTool
 
 __all__ = [
     'SearchTool',
+    'PostgresTool',
     'YoutubeTool',
     'OcrTool',
     'EmbeddingTool',
