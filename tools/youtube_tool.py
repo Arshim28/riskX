@@ -57,7 +57,7 @@ class YoutubeTool(BaseTool):
         self.logger = get_logger(self.name)
         self.config = YoutubeToolConfig(**config.get("youtube", {}))
         
-        # Fixed: Use self.config.youtube_api_key instead of self.youtube_api_key
+
         self.youtube = googleapiclient.discovery.build(
             "youtube", "v3", developerKey=self.config.youtube_api_key
         )
