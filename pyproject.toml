@@ -36,6 +36,8 @@ dependencies = [
     "psutil>=7.0.0",
     "pydantic[email,timezone]>=2.10.6",
     "pypdf2>=3.0.1",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
     "python-dotenv>=1.0.1",
     "pyyaml>=6.0.2",
     "requests>=2.32.3",
@@ -43,6 +45,7 @@ dependencies = [
     "streamlit>=1.43.2",
     "tenacity>=9.0.0",
     "tiktoken>=0.9.0",
+    "tools>=0.1.9",
     "uvicorn>=0.34.0",
     "youtube-transcript-api>=1.0.2",
 ]
