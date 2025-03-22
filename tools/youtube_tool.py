@@ -56,13 +56,16 @@ class YoutubeTool(BaseTool):
         self.config = config
         self.logger = get_logger(self.name)
         self.config = YoutubeToolConfig(**config.get("youtube", {}))
+        
+        # Fixed: Use self.config.youtube_api_key instead of self.youtube_api_key
         self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=self.youtube_api_key
+            "youtube", "v3", developerKey=self.config.youtube_api_key
         )
         self.transcriptor = YouTubeTranscriptApi()
         self._update_retry_params()
     
     def _update_retry_params(self):
+        global RETRY_LIMIT, MULTIPLIER, MIN_WAIT, MAX_WAIT
         RETRY_LIMIT = self.config.retry_limit
         MULTIPLIER = self.config.multiplier
         MIN_WAIT = self.config.min_wait
