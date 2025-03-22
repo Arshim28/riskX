@@ -1,6 +1,6 @@
 from utils.logging import setup_logging, get_logger
-#from utils.llm_provider import init_llm_provider, get_llm_provider
-#from utils.prompt_manager import get_prompt_manager
+from utils.llm_provider import LLMProvider
+from utils.prompt_manager import PromptManager
 from utils.text_chunk import TextChunk
 from utils.utils import (
     load_yaml_config,
@@ -22,5 +22,7 @@ __all__ = [
     'load_json',
     'create_temp_file',
     'get_timestamp',
-    'sanitize_filename'
+    'sanitize_filename',
+    'LLMProvider',
+    'PromptManager'
 ]
