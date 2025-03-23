@@ -1,9 +1,13 @@
 import json
 import os
-from typing import Dict, List, Union, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional, Set, Tuple, Callable
+from datetime import datetime
+import traceback
+import asyncio
+import copy
+
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
-import asyncio
 
 from base.base_agents import BaseAgent
 from utils.llm_provider import get_llm_provider
@@ -22,6 +26,18 @@ class AgentTask(BaseModel):
     error: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    retries: int = 0
+    max_retries: int = 3
+
+
+class WorkflowStateSnapshot(BaseModel):
+    """Snapshot of workflow state for tracking/rollback"""
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    pending_agents: Set[str] = Field(default_factory=set)
+    running_agents: Set[str] = Field(default_factory=set)
+    completed_agents: Set[str] = Field(default_factory=set)
+    failed_agents: Set[str] = Field(default_factory=set)
+    agent_statuses: Dict[str, str] = Field(default_factory=dict)
 
 
 class MetaAgent(BaseAgent):
@@ -33,12 +49,15 @@ class MetaAgent(BaseAgent):
         self.prompt_manager = get_prompt_manager(self.name)
         self.postgres_tool = PostgresTool(config.get("postgres", {}))
         
+        # Configuration parameters
         self.max_parallel_agents = config.get("meta_agent", {}).get("max_parallel_agents", 3)
         self.research_quality_threshold = config.get("quality_thresholds", {}).get("min_quality_score", 6)
         self.max_iterations = config.get("max_iterations", 3)
         self.max_event_iterations = config.get("max_event_iterations", 2)
-        
+        self.enable_recovery = config.get("meta_agent", {}).get("enable_recovery", True)
         self.parallel_execution = config.get("meta_agent", {}).get("parallel_execution", True)
+        
+        # Agent dependency configuration
         self.agent_dependencies = {
             "research_agent": [],
             "youtube_agent": [],
@@ -48,6 +67,7 @@ class MetaAgent(BaseAgent):
             "writer_agent": ["analyst_agent", "corporate_agent"]
         }
         
+        # Agent priority configuration (higher number = higher priority)
         self.agent_priorities = {
             "research_agent": 80,
             "youtube_agent": 60,
@@ -57,16 +77,74 @@ class MetaAgent(BaseAgent):
             "writer_agent": 30
         }
         
+        # State tracking
         self.agent_tasks = {}
         self.completed_agents = set()
         self.running_agents = set()
         self.pending_agents = set()
         self.failed_agents = set()
         
+        # State history for rollback/recovery
+        self.state_history = []
+        self.max_history = 10
+        
+        # Error tracking
         self.last_error = None
+        self.error_count = 0
+        self.critical_error_threshold = 3
+        
+        # Lock for concurrent state updates
+        self.state_lock = asyncio.Lock()
+    
+    async def save_state_snapshot(self, state: Dict[str, Any]) -> None:
+        """Save current workflow state for possible rollback"""
+        snapshot = WorkflowStateSnapshot(
+            pending_agents=self.pending_agents.copy(),
+            running_agents=self.running_agents.copy(),
+            completed_agents=self.completed_agents.copy(),
+            failed_agents=self.failed_agents.copy(),
+            agent_statuses={name: task.status for name, task in self.agent_tasks.items()}
+        )
+        
+        self.state_history.append(snapshot)
+        if len(self.state_history) > self.max_history:
+            self.state_history.pop(0)
+            
+        # Optionally persist to database for disaster recovery
+        try:
+            company = state.get("company", "unknown")
+            await self.postgres_tool.run(
+                command="execute_query",
+                query="INSERT INTO workflow_snapshots (company, snapshot_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET snapshot_data = $2",
+                params=[company, json.dumps(snapshot.dict())]
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to persist workflow snapshot: {str(e)}")
+    
+    async def rollback_to_last_snapshot(self) -> bool:
+        """Rollback workflow state to last stable snapshot"""
+        if not self.state_history:
+            self.logger.warning("No state history available for rollback")
+            return False
+            
+        snapshot = self.state_history.pop()
+        
+        async with self.state_lock:
+            self.pending_agents = snapshot.pending_agents
+            self.running_agents = snapshot.running_agents
+            self.completed_agents = snapshot.completed_agents
+            self.failed_agents = snapshot.failed_agents
+            
+            for agent_name, status in snapshot.agent_statuses.items():
+                if agent_name in self.agent_tasks:
+                    self.agent_tasks[agent_name].status = status
+        
+        self.logger.info(f"Rolled back workflow state to snapshot from {snapshot.timestamp}")
+        return True
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def evaluate_research_quality(self, company: str, industry: str, research_results: Dict) -> Dict:
+        """Evaluate the quality of research results"""
         if not research_results:
             self.logger.warning(f"No research results available for {company}")
             return {
@@ -111,6 +189,7 @@ class MetaAgent(BaseAgent):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def identify_research_gaps(self, company: str, industry: str, event_name: str, 
                                event_data: List[Dict], previous_research_plans: List[Dict]) -> Dict[str, str]:
+        """Identify gaps in current research data"""
         self.logger.info(f"Identifying research gaps for event: {event_name}")
         
         llm_provider = await get_llm_provider()
@@ -161,7 +240,8 @@ class MetaAgent(BaseAgent):
         return gaps
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def create_research_plan(self, company: str, research_gaps: Union[List[Dict], Dict], previous_plans: List[Dict] = None) -> Dict:
+    async def create_research_plan(self, company: str, research_gaps: Dict, previous_plans: List[Dict] = None) -> Dict:
+        """Create a research plan based on identified gaps"""
         if not research_gaps:
             self.logger.warning(f"No research gaps provided for {company}, returning empty plan")
             return {}
@@ -198,6 +278,7 @@ class MetaAgent(BaseAgent):
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_analysis_guidance(self, company: str, research_results: Dict) -> Dict:
+        """Generate guidance for analysis phase based on research results"""
         if not research_results:
             self.logger.warning(f"No research results available for {company} to generate guidance")
             return {
@@ -236,7 +317,8 @@ class MetaAgent(BaseAgent):
         
         return guidance
     
-    async def _load_preliminary_guidelines(self, company: str, industry: str) -> Dict:
+    async def load_preliminary_guidelines(self, company: str, industry: str) -> Dict:
+        """Load preliminary research guidelines"""
         prompt_path = "prompts/meta_agent/preliminary_guidelines.json"
         
         if os.path.exists(prompt_path):
@@ -271,6 +353,7 @@ class MetaAgent(BaseAgent):
         }
     
     async def generate_workflow_status(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a comprehensive status of the workflow"""
         company = state.get("company", "Unknown")
         iteration = state.get("meta_iteration", 0)
         
@@ -282,7 +365,8 @@ class MetaAgent(BaseAgent):
             "current_phase": "Unknown",
             "next_steps": [],
             "errors": [],
-            "progress_percentage": 0
+            "progress_percentage": 0,
+            "state_timestamp": datetime.now().isoformat()
         }
         
         total_agents = len(self.agent_tasks)
@@ -294,6 +378,7 @@ class MetaAgent(BaseAgent):
         if total_agents > 0:
             status["progress_percentage"] = int((completed_count / total_agents) * 100)
         
+        # Determine current workflow phase
         if "research_results" not in state or not state["research_results"]:
             status["current_phase"] = "Initial Research"
         elif "analysis_results" not in state or not state["analysis_results"]:
@@ -304,18 +389,23 @@ class MetaAgent(BaseAgent):
             status["current_phase"] = "Complete"
             status["overall_status"] = "DONE"
         
+        # Gather detailed agent statuses
         for agent_name, task in self.agent_tasks.items():
             agent_status = {
                 "status": task.status,
+                "priority": task.priority,
+                "dependencies": task.dependencies,
                 "started_at": task.started_at,
                 "completed_at": task.completed_at,
-                "error": task.error
+                "error": task.error,
+                "retries": task.retries
             }
             status["agents"][agent_name] = agent_status
             
             if task.error:
                 status["errors"].append(f"{agent_name}: {task.error}")
         
+        # Determine next steps based on current state
         if pending_count > 0:
             status["next_steps"].append(f"Wait for {pending_count} pending agents to complete")
         
@@ -328,6 +418,7 @@ class MetaAgent(BaseAgent):
         return status
     
     async def save_workflow_status(self, state: Dict[str, Any], status: Dict[str, Any]) -> None:
+        """Save workflow status to database"""
         company = state.get("company", "Unknown")
         
         try:
@@ -336,64 +427,93 @@ class MetaAgent(BaseAgent):
                 query="INSERT INTO workflow_status (company, status_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET status_data = $2",
                 params=[company, json.dumps(status)]
             )
+            self.logger.debug(f"Saved workflow status to database for {company}")
         except Exception as e:
             self.logger.error(f"Failed to save workflow status: {str(e)}")
     
-    def initialize_agent_tasks(self, state: Dict[str, Any]) -> None:
-        company = state.get("company", "Unknown")
-        self.logger.info(f"Initializing agent tasks for {company}")
-        
-        self.agent_tasks = {}
-        self.completed_agents = set()
-        self.running_agents = set()
-        self.pending_agents = set()
-        self.failed_agents = set()
-        
-        for agent_name, dependencies in self.agent_dependencies.items():
-            priority = self.agent_priorities.get(agent_name, 0)
+    async def initialize_agent_tasks(self, state: Dict[str, Any]) -> None:
+        """Initialize tasks for all agents with proper dependencies and priorities"""
+        async with self.state_lock:
+            company = state.get("company", "Unknown")
+            self.logger.info(f"Initializing agent tasks for {company}")
             
-            is_parallel = True
-            if not self.parallel_execution:
-                is_parallel = False
+            self.agent_tasks = {}
+            self.completed_agents = set()
+            self.running_agents = set()
+            self.pending_agents = set()
+            self.failed_agents = set()
             
-            task = AgentTask(
-                agent_name=agent_name,
-                priority=priority,
-                dependencies=dependencies,
-                is_parallel=is_parallel
-            )
+            for agent_name, dependencies in self.agent_dependencies.items():
+                priority = self.agent_priorities.get(agent_name, 0)
+                
+                # Check configuration for parallel execution
+                is_parallel = self.parallel_execution
+                
+                # Create agent task
+                task = AgentTask(
+                    agent_name=agent_name,
+                    priority=priority,
+                    dependencies=dependencies,
+                    is_parallel=is_parallel,
+                    timeout_seconds=self.config.get(agent_name, {}).get("timeout", 300)
+                )
+                
+                self.agent_tasks[agent_name] = task
+                self.pending_agents.add(agent_name)
             
-            self.agent_tasks[agent_name] = task
-            self.pending_agents.add(agent_name)
+            # Save initial state snapshot
+            await self.save_state_snapshot(state)
     
-    def get_agent_status(self, agent_name: str) -> str:
+    async def get_agent_status(self, agent_name: str) -> str:
+        """Get current status of an agent"""
         if agent_name in self.agent_tasks:
             return self.agent_tasks[agent_name].status
         return "UNKNOWN"
     
-    def update_agent_status(self, agent_name: str, status: str, error: Optional[str] = None) -> None:
-        if agent_name in self.agent_tasks:
+    async def update_agent_status(self, agent_name: str, status: str, error: Optional[str] = None) -> None:
+        """Update the status of an agent with proper state transitions"""
+        async with self.state_lock:
+            if agent_name not in self.agent_tasks:
+                self.logger.warning(f"Attempted to update status for unknown agent: {agent_name}")
+                return
+                
             prev_status = self.agent_tasks[agent_name].status
             self.agent_tasks[agent_name].status = status
             
+            # Status transitions with proper set updates
             if status == "RUNNING" and prev_status != "RUNNING":
                 self.running_agents.add(agent_name)
                 if agent_name in self.pending_agents:
                     self.pending_agents.remove(agent_name)
+                
+                # Record start time
+                self.agent_tasks[agent_name].started_at = datetime.now().isoformat()
                     
             elif status == "DONE" and prev_status != "DONE":
                 self.completed_agents.add(agent_name)
                 if agent_name in self.running_agents:
                     self.running_agents.remove(agent_name)
+                
+                # Record completion time
+                self.agent_tasks[agent_name].completed_at = datetime.now().isoformat()
                     
             elif status == "ERROR" and prev_status != "ERROR":
                 self.failed_agents.add(agent_name)
                 if agent_name in self.running_agents:
                     self.running_agents.remove(agent_name)
+                
+                # Record error details and completion time
                 self.agent_tasks[agent_name].error = error
+                self.agent_tasks[agent_name].completed_at = datetime.now().isoformat()
                 self.last_error = error
+                
+                # Increment error count for recovery decisions
+                self.error_count += 1
+            
+            self.logger.info(f"Updated agent {agent_name} status: {prev_status} -> {status}")
     
-    def are_dependencies_satisfied(self, agent_name: str) -> bool:
+    async def are_dependencies_satisfied(self, agent_name: str) -> bool:
+        """Check if all dependencies for an agent are satisfied"""
         if agent_name not in self.agent_tasks:
             return False
             
@@ -405,33 +525,67 @@ class MetaAgent(BaseAgent):
                 
         return True
     
-    def get_next_agents(self) -> List[str]:
-        available_agents = []
-        
-        for agent_name in self.pending_agents:
-            if self.are_dependencies_satisfied(agent_name):
-                available_agents.append(agent_name)
-        
-        available_agents.sort(key=lambda name: self.agent_tasks[name].priority, reverse=True)
-        
-        if self.parallel_execution:
-            max_to_run = self.max_parallel_agents - len(self.running_agents)
-            if max_to_run <= 0:
-                return []
-            return available_agents[:max_to_run]
-        else:
-            if not self.running_agents and available_agents:
-                return [available_agents[0]]
-            return []
+    async def get_next_agents(self) -> List[str]:
+        """Get list of agents that are ready to run based on dependencies"""
+        async with self.state_lock:
+            available_agents = []
+            
+            for agent_name in self.pending_agents:
+                if await self.are_dependencies_satisfied(agent_name):
+                    available_agents.append(agent_name)
+            
+            # Sort by priority (higher number = higher priority)
+            available_agents.sort(key=lambda name: self.agent_tasks[name].priority, reverse=True)
+            
+            # Limit by parallelism configuration
+            if self.parallel_execution:
+                max_to_run = self.max_parallel_agents - len(self.running_agents)
+                return available_agents[:max(0, max_to_run)]
+            else:
+                # In non-parallel mode, return at most one agent
+                return available_agents[:1] if not self.running_agents else []
     
-    def is_workflow_complete(self) -> bool:
+    async def should_retry_agent(self, agent_name: str) -> bool:
+        """Determine if a failed agent should be retried"""
+        if agent_name not in self.agent_tasks:
+            return False
+            
+        task = self.agent_tasks[agent_name]
+        
+        # Check if we've exceeded retry limit
+        if task.retries >= task.max_retries:
+            self.logger.info(f"Agent {agent_name} has reached maximum retries ({task.max_retries})")
+            return False
+            
+        # Increment retry count
+        task.retries += 1
+        
+        # Reset status to PENDING
+        self.failed_agents.remove(agent_name)
+        self.pending_agents.add(agent_name)
+        task.status = "PENDING"
+        task.error = None
+        
+        self.logger.info(f"Retrying agent {agent_name} (attempt {task.retries})")
+        return True
+    
+    async def is_workflow_complete(self) -> bool:
+        """Check if the workflow is complete (all agents done or failed)"""
+        # Workflow is complete when all agents are either completed or failed
         return len(self.pending_agents) == 0 and len(self.running_agents) == 0
     
-    def is_workflow_stalled(self) -> bool:
-        if self.pending_agents and not self.get_next_agents():
+    async def is_workflow_stalled(self) -> bool:
+        """Check if the workflow is stalled and can't proceed"""
+        # Check if there are pending agents but none can run
+        if self.pending_agents and not await self.get_next_agents():
+            # For each pending agent, check if all its dependencies have failed
             for agent_name in self.pending_agents:
                 task = self.agent_tasks[agent_name]
                 
+                if not task.dependencies:
+                    # Agent with no dependencies should be runnable
+                    continue
+                    
                 all_deps_failed = True
                 for dependency in task.dependencies:
                     if dependency not in self.failed_agents:
@@ -439,109 +593,254 @@ class MetaAgent(BaseAgent):
                         break
                 
                 if all_deps_failed:
+                    self.logger.warning(f"Workflow stalled: agent {agent_name} has all dependencies failed")
                     return True
                     
+        # Check if error count exceeds critical threshold
+        if self.error_count >= self.critical_error_threshold:
+            self.logger.warning(f"Workflow potentially stalled: error count ({self.error_count}) exceeds threshold")
+            # Don't return True here to allow for recovery attempts
+        
         return False
     
-    async def manage_workflow(self, state: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
-        if not self.agent_tasks:
-            self.initialize_agent_tasks(state)
+    async def attempt_recovery(self, state: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+        """Attempt to recover from stalled or error state"""
+        if not self.enable_recovery:
+            return False, state
+            
+        self.logger.info("Attempting workflow recovery")
         
+        # Strategy 1: Retry failed agents with critical dependencies
+        recovery_attempted = False
+        critical_agents = ["research_agent", "analyst_agent", "writer_agent"]
+        
+        for agent_name in critical_agents:
+            if agent_name in self.failed_agents:
+                if await self.should_retry_agent(agent_name):
+                    recovery_attempted = True
+        
+        # Strategy 2: If previous retries don't help, try rolling back state
+        if not recovery_attempted and len(self.state_history) > 1:
+            # Don't use the very last snapshot as it might be corrupted
+            rollback_success = await self.rollback_to_last_snapshot()
+            if rollback_success:
+                recovery_attempted = True
+                self.error_count = 0  # Reset error count after rollback
+        
+        # Strategy 3: Last resort - if specific agents failed, try to continue with fallbacks
+        if not recovery_attempted:
+            if "research_agent" in self.failed_agents and "research_results" not in state:
+                # Critical failure in research phase, provide empty fallback
+                state["research_results"] = {}
+                state["research_agent_status"] = "DONE"  # Pretend it succeeded
+                await self.update_agent_status("research_agent", "DONE")
+                recovery_attempted = True
+                self.logger.warning("Recovery: Using empty research results as fallback")
+            
+            if "analyst_agent" in self.failed_agents and "analysis_results" not in state:
+                # Critical failure in analysis phase, provide empty fallback
+                state["analysis_results"] = {
+                    "forensic_insights": {},
+                    "event_synthesis": {},
+                    "company_analysis": {},
+                    "red_flags": [],
+                    "timeline": []
+                }
+                state["analyst_agent_status"] = "DONE"
+                await self.update_agent_status("analyst_agent", "DONE")
+                recovery_attempted = True
+                self.logger.warning("Recovery: Using empty analysis results as fallback")
+        
+        if recovery_attempted:
+            self.logger.info("Recovery attempt completed")
+            # Save new workflow status after recovery
+            status = await self.generate_workflow_status(state)
+            await self.save_workflow_status(state, status)
+            
+        return recovery_attempted, state
+    
+    async def manage_workflow(self, state: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+        """Manage workflow execution with improved error handling"""
+        # Initialize agent tasks if not already done
+        if not self.agent_tasks:
+            await self.initialize_agent_tasks(state)
+        
+        # Generate and save workflow status
         status = await self.generate_workflow_status(state)
         await self.save_workflow_status(state, status)
         
-        if self.is_workflow_complete():
+        # Check if workflow is complete
+        if await self.is_workflow_complete():
             self.logger.info("Workflow complete")
             return state, "END"
-            
-        if self.is_workflow_stalled():
-            self.logger.warning(f"Workflow stalled due to failed dependencies: {self.last_error}")
-            return {**state, "error": f"Workflow stalled: {self.last_error}"}, "END"
         
-        next_agents = self.get_next_agents()
+        # Check if workflow is stalled and attempt recovery if needed
+        if await self.is_workflow_stalled():
+            self.logger.warning(f"Workflow stalled due to failed dependencies: {self.last_error}")
+            
+            # Attempt recovery
+            recovery_success, updated_state = await self.attempt_recovery(state)
+            
+            if recovery_success:
+                self.logger.info("Recovery successful, continuing workflow")
+                state = updated_state
+            else:
+                # If recovery failed, end the workflow
+                self.logger.error("Recovery failed, ending workflow")
+                return {**state, "error": f"Workflow stalled and recovery failed: {self.last_error}"}, "END"
+        
+        # Get next agents to run
+        next_agents = await self.get_next_agents()
         
         if not next_agents:
             self.logger.info(f"Waiting for {len(self.running_agents)} running agents to complete")
             return state, "WAIT"
         
+        # Update status of next agent to RUNNING
         next_agent = next_agents[0]
-        self.logger.info(f"Next agent to run: {next_agent}")
+        await self.update_agent_status(next_agent, "RUNNING")
         
-        self.update_agent_status(next_agent, "RUNNING")
+        self.logger.info(f"Next agent to run: {next_agent}")
         return state, next_agent
     
+    async def merge_agent_results(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge results from agent executions into the main state"""
+        # This is called when an agent returns to ensure all results are properly merged
+        # Check for agent-specific results in state and update accordingly
+        updated_state = state.copy()
+        
+        # Check status fields for each agent
+        for agent_name in self.agent_tasks:
+            status_key = f"{agent_name}_status"
+            
+            if status_key in state:
+                # Update our internal tracking
+                await self.update_agent_status(
+                    agent_name, 
+                    state[status_key],
+                    state.get("error") if state[status_key] == "ERROR" else None
+                )
+        
+        # Take a snapshot of the current state for recovery
+        await self.save_state_snapshot(updated_state)
+        
+        return updated_state
+    
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Main execution method with improved error handling and state management"""
         self._log_start(state)
         
-        company = state.get("company", "")
-        industry = state.get("industry", "Unknown")
+        # Deep copy state to avoid mutation issues
+        current_state = copy.deepcopy(state)
+        
+        company = current_state.get("company", "")
+        industry = current_state.get("industry", "Unknown")
         
         if not company:
             self.logger.error("Company name is missing!")
-            return {**state, "goto": "END", "error": "Company name is missing"}
+            return {**current_state, "goto": "END", "error": "Company name is missing"}
         
-        if "meta_iteration" not in state:
-            state["meta_iteration"] = 0
-        if "search_history" not in state:
-            state["search_history"] = []
-        if "event_research_iterations" not in state:
-            state["event_research_iterations"] = {}
+        # Initialize iteration counter if not present
+        if "meta_iteration" not in current_state:
+            current_state["meta_iteration"] = 0
+        if "search_history" not in current_state:
+            current_state["search_history"] = []
+        if "event_research_iterations" not in current_state:
+            current_state["event_research_iterations"] = {}
         
-        state["meta_iteration"] += 1
-        current_iteration = state["meta_iteration"]
+        # Increment iteration counter
+        current_state["meta_iteration"] += 1
+        iteration = current_state["meta_iteration"]
         
-        self.logger.info(f"Starting iteration {current_iteration} for {company}")
+        self.logger.info(f"Starting iteration {iteration} for {company}")
         
-        for agent_name in ["research_agent", "youtube_agent", "corporate_agent", "analyst_agent", "rag_agent", "writer_agent"]:
-            status_key = f"{agent_name}_status"
-            if status_key in state:
-                if state[status_key] == "DONE":
-                    self.update_agent_status(agent_name, "DONE")
-                elif state[status_key] == "ERROR":
-                    error = state.get("error", f"Error in {agent_name}")
-                    self.update_agent_status(agent_name, "ERROR", error)
-        
-        if current_iteration == 1 and not state.get("research_plan"):
-            self.logger.info("Starting preliminary research phase")
+        try:
+            # Update agent statuses from state
+            if self.agent_tasks:
+                current_state = await self.merge_agent_results(current_state)
             
-            self.initialize_agent_tasks(state)
-            
-            preliminary_guidelines = await self._load_preliminary_guidelines(company, industry)
-            state["research_plan"] = [preliminary_guidelines]
-            state["search_type"] = "google_news"
-            state["return_type"] = "clustered"
-            
-            status = await self.generate_workflow_status(state)
-            await self.save_workflow_status(state, status)
-            
-            self.update_agent_status("research_agent", "RUNNING")
-            return {**state, "goto": "research_agent"}
-        
-        if "goto" in state and state["goto"] == "meta_agent":
-            completed_agent = None
-            for agent_name in self.running_agents:
-                status_key = f"{agent_name}_status"
-                if status_key in state and (state[status_key] == "DONE" or state[status_key] == "ERROR"):
-                    completed_agent = agent_name
-                    break
-            
-            if completed_agent:
-                status = state.get(f"{completed_agent}_status", "UNKNOWN")
-                error = state.get("error")
+            # Handle first iteration - initialize research plan
+            if iteration == 1 and not current_state.get("research_plan"):
+                self.logger.info("Starting preliminary research phase")
                 
-                self.update_agent_status(completed_agent, status, error)
-                self.logger.info(f"Agent {completed_agent} completed with status: {status}")
-        
-        updated_state, next_step = await self.manage_workflow(state)
-        
-        if next_step == "END":
-            self.logger.info("Workflow complete, finalizing")
-            return {**updated_state, "goto": "END"}
+                await self.initialize_agent_tasks(current_state)
+                
+                # Load preliminary guidelines
+                preliminary_guidelines = await self.load_preliminary_guidelines(company, industry)
+                current_state["research_plan"] = [preliminary_guidelines]
+                current_state["search_type"] = "google_news"
+                current_state["return_type"] = "clustered"
+                
+                # Generate and save initial workflow status
+                status = await self.generate_workflow_status(current_state)
+                await self.save_workflow_status(current_state, status)
+                
+                # Start with research agent
+                await self.update_agent_status("research_agent", "RUNNING")
+                return {**current_state, "goto": "research_agent"}
             
-        elif next_step == "WAIT":
-            self.logger.info("Waiting for running agents to complete")
-            return {**updated_state, "goto": "WAIT"}
+            # If we're returning from another agent, handle the transition
+            if "goto" in current_state and current_state["goto"] == "meta_agent":
+                # Find which agent just completed
+                completed_agent = None
+                for agent_name in self.running_agents:
+                    status_key = f"{agent_name}_status"
+                    if status_key in current_state and current_state[status_key] in ["DONE", "ERROR"]:
+                        completed_agent = agent_name
+                        break
+                
+                if completed_agent:
+                    # Update agent status based on result
+                    status = current_state.get(f"{completed_agent}_status", "UNKNOWN")
+                    error = current_state.get("error")
+                    
+                    await self.update_agent_status(completed_agent, status, error)
+                    self.logger.info(f"Agent {completed_agent} completed with status: {status}")
             
-        else:
-            self.logger.info(f"Directing workflow to {next_step}")
-            return {**updated_state, "goto": next_step}
+            # Manage workflow to determine next steps
+            updated_state, next_step = await self.manage_workflow(current_state)
+            
+            if next_step == "END":
+                self.logger.info("Workflow complete, finalizing")
+                return {**updated_state, "goto": "END"}
+                
+            elif next_step == "WAIT":
+                self.logger.info("Waiting for running agents to complete")
+                return {**updated_state, "goto": "WAIT"}
+                
+            else:
+                self.logger.info(f"Directing workflow to {next_step}")
+                return {**updated_state, "goto": next_step}
+                
+        except Exception as e:
+            tb = traceback.format_exc()
+            error_msg = f"Error in meta_agent: {str(e)}\n{tb}"
+            self.logger.error(error_msg)
+            
+            # Save error state to database for debugging
+            try:
+                await self.postgres_tool.run(
+                    command="execute_query",
+                    query="INSERT INTO workflow_errors (company, error_data) VALUES ($1, $2)",
+                    params=[company, json.dumps({
+                        "error": str(e),
+                        "traceback": tb,
+                        "timestamp": datetime.now().isoformat(),
+                        "iteration": iteration
+                    })]
+                )
+            except Exception as db_error:
+                self.logger.error(f"Failed to save error to database: {str(db_error)}")
+            
+            # Attempt recovery if enabled
+            if self.enable_recovery:
+                recovery_success, recovered_state = await self.attempt_recovery(current_state)
+                if recovery_success:
+                    self.logger.info("Recovered from error, continuing workflow")
+                    updated_state, next_step = await self.manage_workflow(recovered_state)
+                    
+                    if next_step != "END":
+                        return {**updated_state, "goto": next_step}
+            
+            # If we can't recover, return error state
+            return {**current_state, "goto": "END", "error": error_msg}

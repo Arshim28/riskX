@@ -68,12 +68,13 @@ class AgentState(BaseModel):
     iteration: int = 0
     
     # Add tracking for state operations
-    _state_ops: StateOperation = Field(default_factory=StateOperation, exclude=True)
+    state_ops: StateOperation = Field(default_factory=StateOperation, exclude=True)
     
-    class Config:
-        underscore_attrs_are_private = True
-        validate_assignment = True
-        extra = "allow"  # Allow extra fields for agent-specific state
+    model_config = {
+        "arbitrary_types_allowed": True,
+        "validate_assignment": True,
+        "extra": "allow"  # Allow extra fields for agent-specific state
+    }
     
     @root_validator(pre=True)
     def validate_required_fields(cls, values):
@@ -84,14 +85,14 @@ class AgentState(BaseModel):
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to a dictionary with appropriate serialization."""
-        state_dict = self.dict(exclude={"_state_ops"})
+        state_dict = self.dict(exclude={"state_ops"})
         # Handle non-serializable types if needed
         return state_dict
     
     def copy_with_updates(self, updates: Dict[str, Any]) -> "AgentState":
         """Create a new state with updates applied."""
         # Create a deep copy of current state
-        state_dict = self.dict(exclude={"_state_ops"})
+        state_dict = self.dict(exclude={"state_ops"})
         # Apply updates
         state_dict.update(updates)
         # Create new state object
@@ -99,8 +100,8 @@ class AgentState(BaseModel):
     
     def get_updates_from(self, original_state: "AgentState") -> Dict[str, Any]:
         """Get the fields that have changed from the original state."""
-        original_dict = original_state.dict(exclude={"_state_ops"})
-        current_dict = self.dict(exclude={"_state_ops"})
+        original_dict = original_state.dict(exclude={"state_ops"})
+        current_dict = self.dict(exclude={"state_ops"})
         
         updates = {}
         for key, value in current_dict.items():
@@ -111,7 +112,7 @@ class AgentState(BaseModel):
     
     def __getitem__(self, key: str) -> Any:
         """Allow dictionary-like access to state."""
-        self._state_ops.record_read(key)
+        self.state_ops.record_read(key)
         if hasattr(self, key):
             return getattr(self, key)
         # For dynamic attributes added via extra fields
@@ -119,7 +120,7 @@ class AgentState(BaseModel):
     
     def __setitem__(self, key: str, value: Any) -> None:
         """Allow dictionary-like assignment to state."""
-        self._state_ops.record_write(key)
+        self.state_ops.record_write(key)
         if hasattr(self, key):
             setattr(self, key, value)
         else:
