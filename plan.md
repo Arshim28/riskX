@@ -291,6 +291,7 @@ Based on the dependencies and critical nature of each component, here's the reco
     - Standardize error handling
     - Improve retry strategies
     - Fix cookie management issues
+    - Remove hardcoded cookies from nse tool, since the fresh_cookie should always work
 
 ## Phase 3: Core Agents (Weeks 3-5)
 

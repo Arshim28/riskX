@@ -2,7 +2,8 @@ from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 
 import asyncio
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
+import aiohttp
 from langchain_community.utilities import SerpAPIWrapper
 
 from base.base_tools import BaseTool, ToolResult
@@ -31,14 +32,42 @@ class SearchResult(BaseModel):
     is_quarterly_report: bool = False
 
 
+class SearchError(Exception):
+    """Base class for search-related errors."""
+    pass
+
+
+class SearchConnectionError(SearchError):
+    """Error when connecting to search API."""
+    pass
+
+
+class SearchRateLimitError(SearchError):
+    """Error when search API rate limit is exceeded."""
+    pass
+
+
+class SearchDataError(SearchError):
+    """Error when parsing search data."""
+    pass
+
+
 class SearchTool(BaseTool):
     name = "search_tool"
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-        
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_random_exponential(multiplier=1, min=2, max=10),
+        retry=(
+            retry_if_exception_type(SearchConnectionError) | 
+            retry_if_exception_type(SearchRateLimitError) |
+            retry_if_exception_type(aiohttp.ClientError)
+        )
+    )
     async def run(self, query: str, **kwargs) -> ToolResult[List[SearchResult]]:
         try:
             search_params = {**self.config, **kwargs}
@@ -50,15 +79,27 @@ class SearchTool(BaseTool):
             serp = SerpAPIWrapper(params=params)
             
             loop = asyncio.get_event_loop()
-            raw_results = await loop.run_in_executor(None, lambda: serp.run(query))
+            try:
+                raw_results = await loop.run_in_executor(None, lambda: serp.run(query))
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "rate limit" in error_msg or "too many requests" in error_msg:
+                    raise SearchRateLimitError(f"Search API rate limit exceeded: {str(e)}")
+                elif "connection" in error_msg or "timeout" in error_msg or "network" in error_msg:
+                    raise SearchConnectionError(f"Connection error: {str(e)}")
+                else:
+                    raise SearchError(f"Search error: {str(e)}")
             
             parsed_results = await self._parse_results(raw_results, search_query.query)
             
             self.logger.info(f"Search returned {len(parsed_results)} results")
             
             return ToolResult(success=True, data=parsed_results)
-        except Exception as e:
+        except SearchError as e:
             self.logger.error(f"Search error: {str(e)}")
+            return await self._handle_error(e)
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
             return await self._handle_error(e)
     
     async def _parse_results(self, raw_results: Any, original_query: str) -> List[SearchResult]:
@@ -73,8 +114,8 @@ class SearchTool(BaseTool):
                         raw_results = data
                     elif isinstance(data, dict) and 'organic_results' in data:
                         raw_results = data['organic_results']
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"Failed to parse JSON results: {str(e)}")
             
             if isinstance(raw_results, list):
                 for i, item in enumerate(raw_results):
@@ -90,9 +131,12 @@ class SearchTool(BaseTool):
                             is_quarterly_report=self._is_quarterly_report(title, item.get("snippet", ""))
                         )
                         results.append(result)
-                        
+            else:
+                self.logger.warning(f"Unexpected results format: {type(raw_results)}")
+                
         except Exception as e:
             self.logger.error(f"Error parsing results: {str(e)}")
+            raise SearchDataError(f"Failed to parse search results: {str(e)}")
             
         return results
     
