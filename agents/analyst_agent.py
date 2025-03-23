@@ -6,7 +6,7 @@ import re
 import concurrent.futures
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from base.base_agents import BaseAgent
+from base.base_agents import BaseAgent, AgentState
 from utils.llm_provider import get_llm_provider
 from utils.prompt_manager import get_prompt_manager
 from utils.logging import get_logger
@@ -75,6 +75,99 @@ class AnalystAgent(BaseAgent):
             "red_flags_found": set(),
             "timelines_created": {}
         }
+        
+    async def _execute(self, state: AgentState) -> Dict[str, Any]:
+        """Execute method required by BaseAgent class."""
+        return await self.run(state.to_dict())
+        
+    async def _get_optimal_concurrency(self) -> int:
+        """Determine optimal concurrency based on system load."""
+        try:
+            import psutil
+            cpu_count = psutil.cpu_count(logical=False) or 4
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            
+            if cpu_percent > 80 or memory_percent > 85:
+                return max(1, self.max_workers // 4)  # High load - reduce concurrency
+            elif cpu_percent > 60 or memory_percent > 70:
+                return max(1, self.max_workers // 2)  # Medium load - moderate concurrency
+            else:
+                return self.max_workers  # Low load - use configured concurrency
+        except ImportError:
+            return min(2, self.max_workers)  # Conservative default if psutil not available
+            
+    def _track_entity(self, entity_data: Dict[str, Any], event_name: Optional[str] = None) -> None:
+        """Track an entity in the knowledge base and maintain relationships."""
+        entity_name = entity_data.get("name")
+        if not entity_name or entity_name == "Unknown":
+            return
+            
+        # Add to entities identified set
+        self.result_tracker["entities_identified"].add(entity_name)
+        
+        # Add or update entity in knowledge base
+        if entity_name not in self.knowledge_base["entities"]:
+            self.knowledge_base["entities"][entity_name] = {
+                "name": entity_name,
+                "events": [],
+                "relationships": []
+            }
+        
+        # Update entity with new information
+        entity = self.knowledge_base["entities"][entity_name]
+        for key, value in entity_data.items():
+            if key != "name" and value and value != "Unknown":
+                entity[key] = value
+        
+        # Link entity to event if provided
+        if event_name and event_name not in entity["events"]:
+            entity["events"].append(event_name)
+            
+    def _build_entity_network(self, event_synthesis: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Build a network of entities with their connections."""
+        entity_network = {}
+        entities = self.knowledge_base.get("entities", {})
+        
+        for entity_name, entity_data in entities.items():
+            network_entry = {
+                "name": entity_name,
+                "connections": [],
+                "type": entity_data.get("type", "Unknown"),
+                "role": entity_data.get("role", "Unknown"),
+                "source": entity_data.get("source", "Unknown")
+            }
+            
+            # Add connections to events
+            for event_name in entity_data.get("events", []):
+                if event_name in event_synthesis:
+                    event_info = {
+                        "event": event_name,
+                        "type": "event"
+                    }
+                    
+                    # Add event importance if available
+                    if "importance_level" in event_synthesis[event_name]:
+                        event_info["importance"] = event_synthesis[event_name]["importance_level"]
+                    
+                    network_entry["connections"].append(event_info)
+            
+            # Add relationships to other entities
+            for rel in entity_data.get("relationships", []):
+                if rel.get("target") in entities:
+                    rel_info = {
+                        "entity": rel["target"],
+                        "type": rel.get("type", "related"),
+                        "strength": rel.get("strength", 1)
+                    }
+                    network_entry["connections"].append(rel_info)
+            
+            # Only include entities with connections
+            if network_entry["connections"]:
+                entity_network[entity_name] = network_entry
+        
+        return entity_network
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def extract_forensic_insights(self, company: str, title: str, content: str, event_name: str) -> Optional[Dict]:
@@ -194,14 +287,28 @@ class AnalystAgent(BaseAgent):
     async def process_articles_batch(self, tasks: List[AnalysisTask]) -> List[Dict]:
         self.logger.info(f"Processing batch of {len(tasks)} articles")
         
+        # Get optimal concurrency
+        optimal_workers = await self._get_optimal_concurrency()
+        if optimal_workers != self.processing_semaphore._value:
+            self.logger.info(f"Adjusting concurrency from {self.processing_semaphore._value} to {optimal_workers}")
+            self.processing_semaphore = asyncio.Semaphore(optimal_workers)
+        
         results = []
         
         async def process_with_semaphore(task):
             async with self.processing_semaphore:
                 self.currently_processing.add(task.article_info["title"])
-                result = await self.process_article(task)
-                self.currently_processing.remove(task.article_info["title"])
-                return result
+                try:
+                    result = await self.process_article(task)
+                    return result
+                except Exception as e:
+                    self.logger.error(f"Task error: {str(e)[:100]}...")
+                    task.error = str(e)
+                    task.completed = True
+                    return None
+                finally:
+                    if task.article_info["title"] in self.currently_processing:
+                        self.currently_processing.remove(task.article_info["title"])
         
         tasks_coroutines = [process_with_semaphore(task) for task in tasks]
         batch_results = await asyncio.gather(*tasks_coroutines, return_exceptions=True)
@@ -289,11 +396,12 @@ class AnalystAgent(BaseAgent):
         
         self.logger.info(f"Successfully synthesized insights for event: {event_name}")
         
+        # Track entities from synthesis
         if "key_entities" in synthesis:
             for entity in synthesis.get("key_entities", []):
-                if "name" in entity and entity["name"] != "Unknown":
-                    self.result_tracker["entities_identified"].add(entity["name"])
+                self._track_entity(entity, event_name)
         
+        # Track red flags
         if "red_flags" in synthesis:
             for flag in synthesis.get("red_flags", []):
                 self.result_tracker["red_flags_found"].add(flag)
@@ -422,11 +530,14 @@ class AnalystAgent(BaseAgent):
         pending_events = list(research_results.keys())
         
         while pending_events:
-            batch_size = min(self.concurrent_events, len(pending_events))
+            # Get optimal concurrency for event processing
+            optimal_concurrency = await self._get_optimal_concurrency()
+            batch_size = min(optimal_concurrency, self.concurrent_events, len(pending_events))
+            
             current_batch = pending_events[:batch_size]
             pending_events = pending_events[batch_size:]
             
-            self.logger.info(f"Processing batch of {len(current_batch)} events concurrently")
+            self.logger.info(f"Processing batch of {len(current_batch)} events concurrently with concurrency {batch_size}")
             
             tasks = []
             for event_name in current_batch:
@@ -444,39 +555,102 @@ class AnalystAgent(BaseAgent):
                         self.logger.info(f"Added synthesis for event: {event_name}")
                 except Exception as e:
                     self.logger.error(f"Error processing event {event_name}: {str(e)}")
+            
+            # Allow system to recover between batches
+            await asyncio.sleep(0.1)
         
         return event_synthesis
     
     async def integrate_corporate_data(self, company: str, state: Dict[str, Any]) -> None:
+        """Integrate corporate data with improved entity tracking."""
         if "corporate_results" in state and state["corporate_results"]:
             self.logger.info(f"Integrating corporate data for {company}")
             
             corporate_results = state["corporate_results"]
             self.knowledge_base["corporate_results"] = corporate_results
             
+            # Track company as an entity
             if "company_info" in corporate_results:
                 company_info = corporate_results["company_info"]
                 if "name" in company_info:
-                    self.result_tracker["entities_identified"].add(company_info["name"])
-                
+                    self._track_entity({
+                        "name": company_info["name"],
+                        "type": "Company",
+                        "industry": company_info.get("industry", ""),
+                        "description": company_info.get("description", ""),
+                        "source": "corporate_data"
+                    })
+            
+            # Track executives and directors
+            if "executives" in corporate_results:
+                for exec_data in corporate_results["executives"]:
+                    if "name" in exec_data and exec_data["name"] != "Unknown":
+                        self._track_entity({
+                            "name": exec_data["name"],
+                            "type": "Person",
+                            "role": exec_data.get("position", "Executive"),
+                            "company": company,
+                            "source": "corporate_data"
+                        })
+            
+            if "directors" in corporate_results:
+                for director in corporate_results["directors"]:
+                    if "name" in director and director["name"] != "Unknown":
+                        self._track_entity({
+                            "name": director["name"],
+                            "type": "Person",
+                            "role": "Director",
+                            "company": company,
+                            "source": "corporate_data"
+                        })
+            
+            # Track red flags
             if "red_flags" in corporate_results and isinstance(corporate_results["red_flags"], list):
                 for flag in corporate_results["red_flags"]:
                     self.knowledge_base["red_flags"].append(flag)
                     self.result_tracker["red_flags_found"].add(flag)
     
     async def integrate_youtube_data(self, company: str, state: Dict[str, Any]) -> None:
+        """Integrate YouTube data with improved entity tracking."""
         if "youtube_results" in state and state["youtube_results"]:
             self.logger.info(f"Integrating YouTube data for {company}")
             
             youtube_results = state["youtube_results"]
             self.knowledge_base["youtube_results"] = youtube_results
             
+            # Track YouTube channels
+            if "channels" in youtube_results:
+                for channel in youtube_results.get("channels", []):
+                    if "name" in channel and channel["name"] != "Unknown":
+                        self._track_entity({
+                            "name": channel["name"],
+                            "type": "YouTubeChannel",
+                            "subscribers": channel.get("subscribers", 0),
+                            "videos": channel.get("videos", 0),
+                            "source": "youtube_data"
+                        })
+            
+            # Track video metadata
+            if "videos" in youtube_results:
+                for video in youtube_results.get("videos", []):
+                    # Track people mentioned in videos
+                    for person in video.get("people_mentioned", []):
+                        if person and person != "Unknown":
+                            self._track_entity({
+                                "name": person,
+                                "type": "Person",
+                                "source": "youtube_data",
+                                "mentioned_in": "video"
+                            })
+            
+            # Track red flags
             if "red_flags" in youtube_results and isinstance(youtube_results["red_flags"], list):
                 for flag in youtube_results["red_flags"]:
                     self.knowledge_base["red_flags"].append(flag)
                     self.result_tracker["red_flags_found"].add(flag)
     
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Main entry point for the agent with improved state handling."""
         self._log_start(state)
         
         company = state.get("company", "")
@@ -505,6 +679,10 @@ class AnalystAgent(BaseAgent):
             "entity_network": {},       
             "timeline": [],             
         }
+        
+        # Initialize entity tracking if needed
+        if "entities" not in self.knowledge_base:
+            self.knowledge_base["entities"] = {}
         
         await self.integrate_corporate_data(company, state)
         await self.integrate_youtube_data(company, state)
@@ -562,29 +740,19 @@ class AnalystAgent(BaseAgent):
             that would warrant further investigation at this time.
             """
         
-        entity_network = {}
-        for entity_name in self.result_tracker["entities_identified"]:
-            entity_info = {"name": entity_name, "connections": []}
-            
-            for event_name, synthesis in event_synthesis.items():
-                if "key_entities" in synthesis:
-                    for entity in synthesis["key_entities"]:
-                        if entity.get("name") == entity_name:
-                            if "role" in entity:
-                                entity_info["role"] = entity.get("role")
-                            
-                            connection = {"event": event_name}
-                            entity_info["connections"].append(connection)
-            
-            if entity_info["connections"]:
-                entity_network[entity_name] = entity_info
-                
+        # Build entity network
+        entity_network = self._build_entity_network(event_synthesis)
         analysis_results["entity_network"] = entity_network
         
-        state["analysis_results"] = analysis_results
-        state["final_report"] = final_report
-        state["analyst_status"] = "DONE"
-        state["analysis_stats"] = self.processing_stats
+        # Update state efficiently
+        updated_state = {
+            **state,
+            "analysis_results": analysis_results,
+            "final_report": final_report,
+            "analyst_status": "DONE",
+            "analysis_stats": self.processing_stats,
+            "goto": "meta_agent"
+        }
         
         try:
             await self.postgres_tool.run(
@@ -599,5 +767,5 @@ class AnalystAgent(BaseAgent):
         self.logger.info(f"Found forensic insights in {self.processing_stats['articles_with_insights']} articles.")
         self.logger.info(f"Failed to process {self.processing_stats['failed_articles']} articles.")
         
-        self._log_completion({**state, "goto": "meta_agent"})
-        return {**state, "goto": "meta_agent"}
+        self._log_completion(updated_state)
+        return updated_state
