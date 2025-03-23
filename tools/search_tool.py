@@ -58,7 +58,10 @@ class SearchTool(BaseTool):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-    
+
+    async def _execute(self, query: str, **kwargs) -> ToolResult[List[SearchResult]]:
+        return await self.run
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_random_exponential(multiplier=1, min=2, max=10),
