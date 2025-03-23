@@ -283,6 +283,9 @@ class YoutubeTool(BaseTool):
         self.logger.error(f"YouTube tool error: {error_message}")
         return ToolResult(success=False, error=error_message)
     
+    async def _execute(self, action: str, **kwargs) -> ToolResult:
+        return await self.run(action, **kwargs)
+
     @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
     async def run(self, action: str, **kwargs) -> ToolResult[Dict[str, Any]]:
         try:

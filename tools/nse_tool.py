@@ -546,7 +546,9 @@ class NSETool(BaseTool):
             results["_errors"] = errors
             
         return results
-    
+    async def _execute(self, command: str, **kwargs) -> ToolResult:
+        return await self.run(command, **kwargs)
+        
     async def run(self, command: str, **kwargs) -> ToolResult:
         """Execute a command with standardized error handling."""
         try:
