@@ -69,12 +69,12 @@ class PreparedStatementCache:
     
     def __init__(self, max_size: int = 100):
         self.max_size = max_size
-        self.cache: Dict[Tuple[asyncpg.Connection, str], asyncpg.PreparedStatement] = {}
+        self.cache: Dict[Tuple[asyncpg.Connection, str], Any] = {}
         self.usage_count: Dict[Tuple[asyncpg.Connection, str], int] = {}
         self.last_used: Dict[Tuple[asyncpg.Connection, str], float] = {}
         self.logger = get_logger("prepared_stmt_cache")
     
-    def get(self, connection: asyncpg.Connection, query: str) -> Optional[asyncpg.PreparedStatement]:
+    def get(self, connection: asyncpg.Connection, query: str) -> Optional[Any]:
         key = (connection, query)
         if key in self.cache:
             self.usage_count[key] += 1
@@ -82,7 +82,7 @@ class PreparedStatementCache:
             return self.cache[key]
         return None
     
-    async def add(self, connection: asyncpg.Connection, query: str, statement: asyncpg.PreparedStatement) -> None:
+    async def add(self, connection: asyncpg.Connection, query: str, statement: Any) -> None:
         key = (connection, query)
         
         # If cache is full, remove least recently used entry
@@ -618,7 +618,7 @@ class PostgresTool(BaseTool):
         hash_input = f"{query}:{param_str}"
         return hashlib.md5(hash_input.encode()).hexdigest()
     
-    async def _prepare_statement(self, conn: asyncpg.Connection, query: str) -> asyncpg.PreparedStatement:
+    async def _prepare_statement(self, conn: asyncpg.Connection, query: str) -> Any:
         """Get or create a prepared statement"""
         # Check if we have this statement in cache
         stmt = self.pool.stmt_cache.get(conn, query)
@@ -986,6 +986,9 @@ class PostgresTool(BaseTool):
                 await self.pool.close()
                 self.pool = None
     
+    async def _execute(self, command: str, **kwargs) -> ToolResult[Any]:
+        return await self.run(command, **kwargs)
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def run(self, command: str, **kwargs) -> ToolResult[Any]:
         """Run a PostgreSQL operation"""

@@ -184,23 +184,23 @@ class BaseAgent(ABC):
     
     def _log_start(self, state: AgentState) -> None:
         """Log the start of agent execution with state information."""
-        state_str = json.dumps({k: v for k, v in state.to_dict().items() 
+        state_str = json.dumps({k: v for k, v in state.items() 
                                 if k not in ["company", "industry"]})
-        self.logger.info(f"Starting {self.name} for {state.company} with state: {state_str}")
+        self.logger.info(f"Starting {self.name} for {state['company']} with state: {state_str}")
     
     def _log_completion(self, state: AgentState) -> None:
         """Log the completion of agent execution with metrics."""
-        updates = {k: v for k, v in state.to_dict().items() 
+        updates = {k: v for k, v in state.items() 
                    if k not in ["company", "industry"]}
         self.logger.info(
-            f"Completed {self.name} for {state.company} in "
+            f"Completed {self.name} for {state['company']} in "
             f"{self.metrics.execution_time_ms:.2f}ms with updates: {json.dumps(updates)}"
         )
     
     def _log_error(self, error: Exception, state: AgentState) -> None:
         """Log an error that occurred during agent execution."""
         self.logger.error(
-            f"Error in {self.name} for {state.company}: {str(error)}",
+            f"Error in {self.name} for {state['company']}: {str(error)}",
             exc_info=True
         )
     

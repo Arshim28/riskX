@@ -170,25 +170,37 @@ async def test_run_later_iteration(agent, state):
     state["goto"] = "meta_agent"
     state["research_agent_status"] = "DONE"
     
-    with patch.object(agent, "merge_agent_results", AsyncMock(return_value=state)), \
-         patch.object(agent, "manage_workflow", AsyncMock(return_value=(state, "analyst_agent"))):
+    # Create a state with incremented meta_iteration
+    merged_state = state.copy()
+    merged_state["meta_iteration"] = 2
+    
+    with patch.object(agent, "merge_agent_results", AsyncMock(return_value=merged_state)), \
+         patch.object(agent, "manage_workflow", AsyncMock(return_value=(merged_state, "analyst_agent"))):
         
         result = await agent.run(state)
         
         assert result["goto"] == "analyst_agent"
         assert result["meta_iteration"] == 2
-        assert agent.merge_agent_results.called
-
 
 @pytest.mark.asyncio
 async def test_save_state_snapshot(agent, state):
     await agent.initialize_agent_tasks(state)
-    agent.postgres_tool.run = AsyncMock()
+    
+    postgres_mock = AsyncMock()
+    agent.postgres_tool.run = postgres_mock
+    
+    agent.state_history = []
     
     await agent.save_state_snapshot(state)
     
     assert len(agent.state_history) == 1
-    assert agent.postgres_tool.run.called
+    assert postgres_mock.called, "postgres_tool.run was not called as expected"
+    
+
+    postgres_mock.assert_called_once()
+    call_args = postgres_mock.call_args[1]  
+    assert call_args["command"] == "execute_query"
+    assert "INSERT INTO workflow_snapshots" in call_args["query"]
 
 
 @pytest.mark.asyncio

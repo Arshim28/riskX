@@ -110,13 +110,20 @@ class MetaAgent(BaseAgent):
         if len(self.state_history) > self.max_history:
             self.state_history.pop(0)
             
-        # Optionally persist to database for disaster recovery
         try:
             company = state.get("company", "unknown")
+            serializable_snapshot = {
+                "timestamp": snapshot.timestamp,
+                "pending_agents": list(snapshot.pending_agents),
+                "running_agents": list(snapshot.running_agents),
+                "completed_agents": list(snapshot.completed_agents),
+                "failed_agents": list(snapshot.failed_agents),
+                "agent_statuses": snapshot.agent_statuses
+            }
             await self.postgres_tool.run(
                 command="execute_query",
                 query="INSERT INTO workflow_snapshots (company, snapshot_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET snapshot_data = $2",
-                params=[company, json.dumps(snapshot.dict())]
+                params=[company, json.dumps(serializable_snapshot)]
             )
         except Exception as e:
             self.logger.warning(f"Failed to persist workflow snapshot: {str(e)}")
@@ -725,6 +732,13 @@ class MetaAgent(BaseAgent):
         await self.save_state_snapshot(updated_state)
         
         return updated_state
+
+    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Implements the abstract _execute method required by BaseAgent.
+        This is a wrapper around the run method.
+        """
+        return await self.run(state)
     
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Main execution method with improved error handling and state management"""
