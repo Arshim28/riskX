@@ -28,22 +28,18 @@ from agents.writer_agent import WriterAgent
 
 
 class WorkflowState(TypedDict):
-    # Core workflow information
     company: str
     industry: Optional[str]
     meta_iteration: int
     
-    # User interaction state
     user_approved: bool
     user_feedback: Optional[Dict[str, str]]
     requires_user_approval: bool
     user_approval_type: Optional[str]
     
-    # Agent control
     goto: Optional[str]
     error: Optional[str]
     
-    # Agent status tracking
     meta_agent_status: Optional[str]
     research_agent_status: Optional[str]
     corporate_agent_status: Optional[str]
@@ -52,44 +48,37 @@ class WorkflowState(TypedDict):
     rag_agent_status: Optional[str]
     writer_agent_status: Optional[str]
     
-    # Parallel execution tracking
     parallel_agents: List[str]
     running_agents: Set[str]
     completed_agents: Set[str]
     failed_agents: Set[str]
     agent_results: Dict[str, Any]
     
-    # Research tracking
     research_plan: List[Dict[str, Any]]
     search_history: List[List[str]]
     search_type: Optional[str]
     return_type: Optional[str]
     event_research_iterations: Dict[str, int]
     
-    # Agent results
     research_results: Dict[str, List[Dict[str, Any]]]
     event_metadata: Dict[str, Dict[str, Any]]
     corporate_results: Dict[str, Any]
     youtube_results: Dict[str, Any]
     analysis_results: Dict[str, Any]
     
-    # Analyst pool tracking
     analyst_tasks: List[Dict[str, Any]]
     analyst_task_results: Dict[str, Any]
     analyst_pool_size: int
     
-    # Quality tracking
     quality_assessment: Dict[str, Any]
     analysis_guidance: Dict[str, Any]
     
-    # Final outputs
     final_report: Optional[str]
     report_sections: Dict[str, str]
     top_events: List[str]
     other_events: List[str]
     executive_briefing: Optional[str]
     
-    # Workflow control
     additional_research_completed: bool
     final_analysis_completed: bool
     final_analysis_requested: bool
@@ -99,7 +88,6 @@ class WorkflowState(TypedDict):
 
 
 class EnhancedForensicWorkflow(BaseGraph):
-    """Enhanced graph-based workflow for financial forensic analysis with parallel execution."""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
@@ -107,11 +95,9 @@ class EnhancedForensicWorkflow(BaseGraph):
         self.config = config or {}
         self.logger = get_logger("forensic_workflow")
         
-        # Initialize LLM provider and prompt manager
         init_llm_provider(self.config)
         init_prompt_manager()
         
-        # Initialize agents
         self.meta_agent = MetaAgent(self.config)
         self.research_agent = ResearchAgent(self.config)
         self.youtube_agent = YouTubeAgent(self.config)

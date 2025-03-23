@@ -234,15 +234,136 @@ START ─────────► │     meta_agent     │
                            END
 ```
 
-## Implementation Recommendations
+# Strategic File-by-File Improvement Plan
 
-To bridge the gap between the current implementation and the full vision:
+Based on the dependencies and critical nature of each component, here's the recommended order for fixing the files in the Financial Forensic Analysis system:
 
-1. **Parallelization Layer**: Add a node manager to coordinate parallel agent execution
-2. **Additional Agent Nodes**: Implement missing agents (YouTube, Corporate, RAG)
-3. **Database Integration**: Add nodes for database read/write operations
-4. **User Interaction Points**: Add nodes for capturing user approval of plans
-5. **Enhanced State Management**: Expand the state object to track progress across parallel agents
-6. **Improved Error Recovery**: Enhance the error handler to manage failures in specific branches
+## Phase 1: Fix Foundation Components (Weeks 1-2)
 
-The LangGraph framework is well-suited for this evolution, as it supports both the current sequential workflow and the more complex parallel design outlined in the original plan.
+### 1. Base Classes First
+1. **`base/base_tools.py`**
+   - Standardize error handling and return types
+   - Improve async implementation
+   - Add better docstrings and validation
+
+2. **`base/base_agents.py`**
+   - Implement proper state management patterns
+   - Add state validation capabilities
+   - Fix async/await implementation issues
+
+3. **`utils/logging.py`**
+   - Enhance to support structured logging
+   - Add performance tracing capabilities
+   - Implement log correlation across components
+
+4. **`utils/llm_provider.py`**
+   - Standardize interface for all agent interactions
+   - Implement better retry and error handling
+   - Add response validation
+
+5. **`utils/text_chunk.py`** & **`utils/prompt_manager.py`**
+   - Implement memory optimization in text handling
+   - Standardize prompt template management
+
+## Phase 2: Critical Tools & Infrastructure (Weeks 2-3)
+
+6. **`tools/vector_store_tool.py`**
+   - Fix memory management issues
+   - Implement proper cleanup protocols
+   - Add batching for large datasets
+
+7. **`tools/ocr_vector_store_tool.py`**
+   - Address memory leaks
+   - Implement incremental processing
+   - Improve error recovery
+
+8. **`tools/embedding_tool.py`**
+   - Fix async implementation
+   - Implement request batching
+   - Add rate limiting support
+
+9. **`tools/postgres_tool.py`**
+   - Improve connection pooling
+   - Add transaction management
+   - Implement query optimization
+
+10. **`tools/search_tool.py`** & **`tools/nse_tool.py`**
+    - Standardize error handling
+    - Improve retry strategies
+    - Fix cookie management issues
+
+## Phase 3: Core Agents (Weeks 3-5)
+
+11. **`agents/meta_agent.py`**
+    - Refactor workflow management
+    - Fix state propagation
+    - Improve error recovery
+
+12. **`agents/research_agent.py`**
+    - Fix query generation and clustering
+    - Implement incremental research capabilities
+    - Add result validation
+
+13. **`agents/analyst_agent.py`**
+    - Address state management issues
+    - Fix entity tracking
+    - Improve parallel processing
+
+14. **`agents/corporate_agent.py`** & **`agents/youtube_agent.py`**
+    - Standardize error handling
+    - Fix response processing
+    - Add retry mechanisms
+
+15. **`agents/rag_agent.py`**
+    - Fix memory management
+    - Improve vector retrieval
+    - Add incremental document processing
+
+16. **`agents/writer_agent.py`**
+    - Standardize section generation
+    - Fix concurrency issues
+    - Implement better report assembly
+
+## Phase 4: Workflow Orchestration (Weeks 5-6)
+
+17. **`langgraph_workflow.py`**
+    - Refactor graph construction
+    - Improve error handling and recovery
+    - Fix parallel execution management
+    - Address state consistency issues
+
+## Phase 5: Test Suite Improvement (Throughout all phases)
+
+18. **Fix/Extend Agent Tests**
+    - First focus on `test_meta_agent.py` and `test_analyst_agent.py`
+    - Create proper mocks and fixtures
+    - Add edge case testing
+
+19. **Fix/Extend Tool Tests**
+    - Improve `test_vector_store_tool.py`
+    - Add performance tests
+
+20. **Improve Workflow Tests**
+    - Completely overhaul `test_langgraph_workflow.py`
+    - Add integration tests
+    - Implement end-to-end test cases
+
+## Implementation Approach for Each File
+
+For each file, follow this process:
+
+1. **Analysis**: Review issues and identify patterns
+2. **Refactoring Plan**: Document specific changes
+3. **Test Coverage**: Create/update tests for affected functionality
+4. **Implementation**: Fix issues while maintaining interfaces
+5. **Validation**: Run tests and benchmark performance
+6. **Documentation**: Update docstrings and comments
+
+## Critical Dependencies to Consider
+
+- The `base_*` files are used by everything else, so fix these first
+- Tool fixes should happen before fixing agents that depend on them
+- The `meta_agent.py` orchestrates other agents, so its proper operation is critical
+- `langgraph_workflow.py` depends on all agents working correctly
+
+This structured approach addresses the foundational issues first, allowing improvements to propagate upward through the dependency chain, minimizing rework and ensuring that each component has a stable foundation to build upon.
