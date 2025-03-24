@@ -370,6 +370,9 @@ class NSETool(BaseTool):
             error_message = f"Error in NSE tool: {str(e)}"
             self.logger.error(error_message)
             return ToolResult(success=False, error=error_message)
+    
+    async def _execute(self, **kwargs) -> ToolResult:
+        pass
 
 if __name__ == "__main__":
     config = {

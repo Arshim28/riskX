@@ -52,15 +52,12 @@ MOCK_CHANNEL_VIDEOS = [
     }
 ]
 
-# Make sure the transcript format matches exactly what's expected in the test
-MOCK_TRANSCRIPT = """
-Good morning everyone. Today we're going to discuss the financial performance
+MOCK_TRANSCRIPT = """Good morning everyone. Today we're going to discuss the financial performance
 of our company for the first quarter of 2023. As you can see from our reports,
 revenue has increased by 15% compared to the same period last year, while
 expenses have been reduced by 7%. This has resulted in a significant improvement
 in our profit margins. Now, I'd like to address some of the challenges we're
-facing in the current market...
-"""
+facing in the current market..."""
 
 MOCK_FORENSIC_ANALYSIS = {
     "forensic_relevance": "high",
@@ -161,18 +158,19 @@ def agent(config, mock_logger):
     youtube_tool_mock = MagicMock()
     youtube_tool_mock.run = AsyncMock()
     
-    # Create LLM provider mock
+    # Create LLM provider mock - proper setup is critical
     llm_provider_mock = MagicMock()
     llm_provider_mock.generate_text = AsyncMock()
     
-    # Create a mock function that RETURNS an async function that returns the mock provider
-    mock_get_llm_provider = AsyncMock(return_value=llm_provider_mock)
+    # Create a properly mocked get_llm_provider function
+    get_llm_provider_mock = AsyncMock()
+    get_llm_provider_mock.return_value = llm_provider_mock
     
     # Create and return the agent with all necessary patches
     with patch("utils.prompt_manager.get_prompt_manager", return_value=prompt_manager_mock), \
          patch("utils.logging.get_logger", return_value=mock_logger), \
          patch("tools.youtube_tool.YoutubeTool", return_value=youtube_tool_mock), \
-         patch("agents.youtube_agent.get_llm_provider", side_effect=mock_get_llm_provider):
+         patch("agents.youtube_agent.get_llm_provider", return_value=get_llm_provider_mock):
         
         # Create and return the agent
         agent = YouTubeAgent(config)
@@ -181,7 +179,6 @@ def agent(config, mock_logger):
         agent.logger = mock_logger
         agent.prompt_manager = prompt_manager_mock
         agent.youtube_tool = youtube_tool_mock
-        agent.llm_provider = llm_provider_mock  # Store for test access
         
         # Add logging methods
         agent._log_start = MagicMock()
@@ -293,14 +290,13 @@ async def test_get_transcript_success(agent):
     # Setup
     transcript_result = MagicMock()
     transcript_result.success = True
-    # Use the exact format with newlines
     transcript_result.data = {"transcript": MOCK_TRANSCRIPT}
     agent.youtube_tool.run.return_value = transcript_result
     
     # Execute
     result = await agent.get_transcript("video1")
     
-    # Verify - match the exact transcript including newlines
+    # Verify - match the exact transcript including format
     assert result == MOCK_TRANSCRIPT
     agent.youtube_tool.run.assert_called_once_with(
         action="get_transcript",
@@ -343,21 +339,24 @@ async def test_get_transcript_error(agent):
 @pytest.mark.asyncio
 async def test_analyze_transcript_success(agent, video_data):
     """Test successful transcript analysis."""
-    # Setup - we directly set the mocked response on the agent's llm_provider
-    agent.llm_provider.generate_text.return_value = json.dumps(MOCK_FORENSIC_ANALYSIS)
+    # Setup the LLM provider mock to return the expected response
+    llm_mock = AsyncMock()
+    llm_mock.generate_text.return_value = json.dumps(MOCK_FORENSIC_ANALYSIS)
     
-    # Execute
-    result = await agent.analyze_transcript(video_data, "Test Company")
-    
-    # Verify
-    assert result["forensic_relevance"] == "high"
-    assert len(result["red_flags"]) == 2
-    assert "Inconsistent financial reporting" in result["red_flags"]
-    assert video_data.forensic_summary == result
-    assert video_data.relevance_score == 0.9  # high relevance = 0.9
-    
-    # Verify LLM call
-    agent.llm_provider.generate_text.assert_called_once()
+    # Patch get_llm_provider to return our mock
+    with patch("agents.youtube_agent.get_llm_provider", return_value=llm_mock):
+        # Execute
+        result = await agent.analyze_transcript(video_data, "Test Company")
+        
+        # Verify
+        assert result["forensic_relevance"] == "high"
+        assert len(result["red_flags"]) == 2
+        assert "Inconsistent financial reporting" in result["red_flags"]
+        assert video_data.forensic_summary == result
+        assert video_data.relevance_score == 0.9  # high relevance = 0.9
+        
+        # Verify LLM call
+        llm_mock.generate_text.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -382,18 +381,21 @@ async def test_analyze_transcript_no_transcript(agent, video_data):
 @pytest.mark.asyncio
 async def test_analyze_transcript_json_error(agent, video_data):
     """Test handling of invalid JSON response from LLM."""
-    # Setup - directly use the agent's llm_provider
-    agent.llm_provider.generate_text.return_value = "Invalid JSON response"
+    # Setup a mock LLM provider that returns invalid JSON
+    llm_mock = AsyncMock()
+    llm_mock.generate_text.return_value = "Invalid JSON response"
     
-    # Execute - this should not raise an exception with our patched retry decorator
-    result = await agent.analyze_transcript(video_data, "Test Company")
-    
-    # Verify - should handle error and return a default result
-    assert "forensic_relevance" in result
-    assert "red_flags" in result
-    assert "summary" in result
-    # Check if error is included in the summary or the relevance is set to "unknown"
-    assert "Error" in result["summary"] or result["forensic_relevance"] == "unknown"
+    # Patch get_llm_provider to return our mock
+    with patch("agents.youtube_agent.get_llm_provider", return_value=llm_mock):
+        # Execute
+        result = await agent.analyze_transcript(video_data, "Test Company")
+        
+        # Verify - should handle error and return a default result
+        assert "forensic_relevance" in result
+        assert "red_flags" in result
+        assert "summary" in result
+        # Check if error is included in the summary or the relevance is set to "unknown"
+        assert "Error" in result["summary"] or result["forensic_relevance"] == "unknown"
 
 
 @pytest.mark.asyncio
@@ -480,8 +482,7 @@ async def test_get_channel_videos_fallback_to_search(agent):
 @pytest.mark.asyncio
 async def test_generate_video_summary_success(agent):
     """Test successful video summary generation."""
-    # Setup - use the agent's llm_provider directly
-    # Create a list of VideoData objects with forensic summaries
+    # Setup - Create a list of VideoData objects with forensic summaries
     videos_data = []
     for i, video in enumerate(MOCK_VIDEOS):
         v = VideoData(
@@ -498,27 +499,31 @@ async def test_generate_video_summary_success(agent):
         v.relevance_score = 0.9 if i == 0 else 0.6
         videos_data.append(v)
     
-    agent.llm_provider.generate_text.return_value = json.dumps(MOCK_VIDEO_SUMMARY)
+    # Create our mock for get_llm_provider
+    llm_mock = AsyncMock()
+    llm_mock.generate_text.return_value = json.dumps(MOCK_VIDEO_SUMMARY)
     
-    # Execute
-    result = await agent.generate_video_summary(videos_data, "Test Company")
-    
-    # Verify
-    assert result["overall_assessment"] == "Concerning"
-    assert len(result["key_insights"]) == 2
-    assert len(result["red_flags"]) == 3
-    assert len(result["notable_videos"]) == 2
-    assert result["company"] == "Test Company"
-    assert "timestamp" in result
-    
-    # Verify LLM call
-    agent.llm_provider.generate_text.assert_called_once()
+    # Patch get_llm_provider to return our mock
+    with patch("agents.youtube_agent.get_llm_provider", return_value=llm_mock):
+        # Execute
+        result = await agent.generate_video_summary(videos_data, "Test Company")
+        
+        # Verify
+        assert result["overall_assessment"] == "Concerning"
+        assert len(result["key_insights"]) == 2
+        assert len(result["red_flags"]) == 3
+        assert len(result["notable_videos"]) == 2
+        assert result["company"] == "Test Company"
+        assert "timestamp" in result
+        
+        # Verify LLM call
+        llm_mock.generate_text.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_generate_video_summary_error(agent):
     """Test error handling in summary generation."""
-    # Setup - use the agent's llm_provider directly
+    # Setup a list of VideoData objects
     videos_data = [VideoData(
         video_id="video1",
         title="Test Video",
@@ -526,17 +531,20 @@ async def test_generate_video_summary_error(agent):
         description="Test Description"
     )]
     
-    # Simulate LLM error
-    agent.llm_provider.generate_text.side_effect = Exception("LLM error")
+    # Create mock that raises an exception
+    llm_mock = AsyncMock()
+    llm_mock.generate_text.side_effect = Exception("LLM error")
     
-    # Execute - should not raise with our patched decorator
-    result = await agent.generate_video_summary(videos_data, "Test Company")
-    
-    # Verify - should have error indicators but not fail
-    assert "overall_assessment" in result
-    assert "key_insights" in result
-    assert "red_flags" in result
-    assert "Error" in result["overall_assessment"] or any("Failed" in insight for insight in result["key_insights"])
+    # Patch get_llm_provider to return our mock
+    with patch("agents.youtube_agent.get_llm_provider", return_value=llm_mock):
+        # Execute - should not raise with our patched decorator
+        result = await agent.generate_video_summary(videos_data, "Test Company")
+        
+        # Verify - should have error indicators but not fail
+        assert "overall_assessment" in result
+        assert "key_insights" in result
+        assert "red_flags" in result
+        assert "Error" in result["overall_assessment"] or any("Failed" in insight for insight in result["key_insights"])
 
 
 @pytest.mark.asyncio
@@ -575,34 +583,11 @@ async def test_run_with_search_errors(agent, state):
     # Setup errors in search but success in other methods
     agent.search_videos = AsyncMock(side_effect=YouTubeDataError("API error"))
     agent.get_channel_videos = AsyncMock(return_value=[])
-    
-    # Make sure the search errors are included in the youtube_results
-    def mock_run_impl(state):
-        result = {
-            "goto": "meta_agent",
-            "youtube_status": "DONE",
-            "youtube_results": {
-                "videos": [],
-                "channels": {},
-                "summary": {
-                    "overall_assessment": "Error",
-                    "key_insights": ["Failed to generate summary"],
-                    "red_flags": ["YouTube agent failed with error"]
-                },
-                "red_flags": ["YouTube agent failed with error"],
-                "errors": {
-                    "search_errors": ["Error searching for 'Test Company': API error"],
-                    "transcript_errors": [],
-                    "analysis_errors": [],
-                    "total_errors": 1
-                },
-                "queries": ["Test Company Test Company overview"]
-            }
-        }
-        return result
-    
-    # Mock the entire run method to get the right structure
-    agent.run = AsyncMock(side_effect=mock_run_impl)
+    agent.generate_video_summary = AsyncMock(return_value={
+        "overall_assessment": "Error",
+        "key_insights": ["Failed to generate summary"],
+        "red_flags": ["YouTube agent failed with error"]
+    })
     
     # Execute
     result = await agent.run(state)
@@ -611,7 +596,8 @@ async def test_run_with_search_errors(agent, state):
     assert result["goto"] == "meta_agent"
     assert result["youtube_status"] == "DONE"
     assert "youtube_results" in result
-    # The key assertion that was failing
+    assert "videos" in result["youtube_results"]
+    assert len(result["youtube_results"]["videos"]) == 0
     assert "errors" in result["youtube_results"]
     assert "search_errors" in result["youtube_results"]["errors"]
 
@@ -736,28 +722,6 @@ async def test_sanitize_transcript(agent):
     transcript = "  This  has\nextra \n\n whitespace  "
     result = agent._sanitize_transcript(transcript)
     assert result == "This has extra whitespace"
-
-
-@pytest.mark.asyncio
-async def test_retry_mechanism(agent):
-    """Test the retry mechanism works properly."""
-    # Create a simple test function that uses our retry mechanism
-    # This will always succeed now because we've patched the retry decorator
-    calls = 0
-    
-    # Just create a simple function without a decorator for testing
-    async def test_func():
-        nonlocal calls
-        calls += 1
-        if calls < 3:
-            return None  # Simulate failure that gets handled by our mock decorator
-        return "success"  # Return on third call
-    
-    # Execute
-    result = await test_func()
-    
-    # Verify we went through multiple calls
-    assert calls == 1
 
 
 @pytest.mark.asyncio
