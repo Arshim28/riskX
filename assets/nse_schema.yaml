@@ -1,0 +1,42 @@
+Announcements: 
+  event_type: desc
+  attachment: attchmntFile
+  description: attchmntText
+  time: exchdisstime
+
+AnnXBRL:
+  event_type: eventType
+  attachment: attachment
+  time: broadcastDateTime
+  appId: appId
+
+AnnualReports:
+  from_year: fromYr
+  to_year: toYr
+  attachment: fileName
+
+BussinessSustainabilitiyReport:
+  from_year: fyFrom
+  to_year: fyTo
+  attachment: attachmentFile
+  submission_date: submissionDate
+
+BoardMeetings:
+  date: bm_date
+  symbol: bm_purpose
+  description: bm_desc
+  attachment: attachment
+
+CorporateActions:
+  date: exDate
+  subject: subject
+
+CreditRating:
+  agency: NameOfCRAgency
+  rating: CreditRating
+  rating_action: RatingAction
+  outlook: Outlook
+  date: DateOfVer
+  older_rating: CreditRatingEarlier
+  signatory_name: Savithri Parekh
+  signatory_designation: Designation

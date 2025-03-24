@@ -1,7 +1,3 @@
-# NSE API Configuration
-# This file contains configuration for all NSE API endpoints
-
-# Corporate Filings & Announcements
 Announcements:
   endpoint: corporate-announcements
   params:
@@ -17,6 +13,16 @@ Announcements:
     When retrieving for a specific company, both symbol and issuer (company name) are required.
   active: true
 
+AnnXBRLDetails: 
+  endpoint: XBRL-announcements
+  params: 
+    type: announcements
+    appId: ""
+  referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements-xbrl
+  description: >
+    Returns the details of announcements which are procured from XBRL announcements, only for internal use 
+  active: false
+
 AnnXBRL:
   endpoint: XBRL-announcements
   params:
@@ -25,6 +31,7 @@ AnnXBRL:
     to_date: ""
     symbol: ""
     issuer: ""
+    appId: ""
     type: announcements
   referer: https://www.nseindia.com/companies-listing/corporate-filings-announcements-xbrl
   description: >
@@ -40,9 +47,9 @@ AnnXBRL:
     - agr: Agreements/Contracts/Arrangements/MOU
     - annOts: One time settlement/Inter-Creditors Agreement
     - CIRP: Corporate Insolvency Resolution Process
+    appId is used to get additional information for a given announcement. Only for internal useage
   active: true
 
-# Corporate Reports
 AnnualReports:
   endpoint: annual-reports
   params:
@@ -65,7 +72,6 @@ BussinessSustainabilitiyReport:
     These reports are available starting from 2024.
   active: true
 
-# Meetings and Corporate Events
 BoardMeetings:
   endpoint: corporate-board-meetings
   params:
@@ -89,7 +95,7 @@ ShareholderMeetings:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-postal-ballot
   description: >
     Returns information about shareholder meetings and postal ballots.
-  active: true
+  active: false
 
 EventCalendar:
   endpoint: event-calendar
@@ -102,9 +108,8 @@ EventCalendar:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-event-calendar
   description: >
     Returns information about upcoming corporate events and actions.
-  active: true
+  active: false
 
-# Corporate Actions
 CorporateActions:
   endpoint: corporates-corporateActions
   params:
@@ -133,7 +138,7 @@ FinancialResults:
   description: >
     Returns financial filing details. The period parameter is required and must be 
     either "Quarterly" or "Annual". Without date parameters, returns the latest 20 results.
-  active: true
+  active: false
 
 LastFiveFincialResults:
   endpoint: results-comparision
@@ -142,7 +147,7 @@ LastFiveFincialResults:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-financial-results-comparision
   description: >
     Returns details from the last 5 financial results of the company for comparison.
-  active: true
+  active: false
 
 # Insider Trading and Shareholding
 InsiderTrading:
@@ -156,7 +161,7 @@ InsiderTrading:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-insider-trading
   description: >
     Returns insider trading details. Without date parameters, returns the latest 20 records.
-  active: true
+  active: false
 
 InsiderTradingAnnual:
   endpoint: corporate-IT-PIT-Annual
@@ -169,7 +174,7 @@ InsiderTradingAnnual:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-pit-annual
   description: >
     Returns annual insider trading disclosures. Without date parameters, returns the latest 20 records.
-  active: true
+  active: false
 
 ShareholdingPatterns:
   endpoint: corporate-share-holdings-master
@@ -180,7 +185,7 @@ ShareholdingPatterns:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern
   description: >
     Returns the shareholding pattern history of the company.
-  active: true
+  active: false
 
 ShareholdingPatternDisclousreDocument:
   endpoint: shareholding-patterns-sdd
@@ -191,10 +196,10 @@ ShareholdingPatternDisclousreDocument:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern-sdd
   description: >
     Returns the shareholding pattern disclosure documents. May not be available for all companies.
-  active: true
+  active: false
 
 # Credit and Debt Information
-credit_rating:
+CreditRating:
   endpoint: corporate-credit-rating
   params:
     index: ""
@@ -202,7 +207,7 @@ credit_rating:
   referer: https://www.nseindia.com/companies-listing/debt-centralised-database/crd
   description: >
     Returns the credit rating information of the company.
-  active: true
+  active: false
 
 interest_Payment:
   endpoint: corporate-interest-payment
@@ -212,7 +217,7 @@ interest_Payment:
   referer: https://www.nseindia.com/companies-listing/debt-centralised-database/ipd
   description: >
     Returns the interest payment details of the company's debt securities.
-  active: true
+  active: false
 
 redempay:
   endpoint: corporate-redemption-payment
@@ -222,7 +227,7 @@ redempay:
   referer: https://www.nseindia.com/companies-listing/debt-centralised-database/rpd
   description: >
     Returns the redemption payment details of the company's debt securities.
-  active: true
+  active: false
 
 reg_60:
   endpoint: corporate-reg60
@@ -235,7 +240,7 @@ reg_60:
   description: >
     Returns information about payments like interest, dividends, or redemptions on 
     non-convertible securities. Without date parameters, returns the latest 20 records.
-  active: true
+  active: false
 
 # Corporate Governance and Compliance
 IntegratedFiling:
@@ -248,7 +253,7 @@ IntegratedFiling:
   description: >
     Returns integrated corporate governance data including Board composition,
     committees structure, regulatory compliance, and investor grievance handling.
-  active: true
+  active: false
 
 DisclousreOfSchareHoldingReg31:
   endpoint: corporate-shareholding-disclosure
@@ -262,7 +267,7 @@ DisclousreOfSchareHoldingReg31:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-31-event
   description: >
     Returns disclosure of shareholding in accordance with Regulation 31.
-  active: true
+  active: false
 
 # Pledges and Encumbrances
 DisclosureOfEncumberedShares:
@@ -276,7 +281,7 @@ DisclosureOfEncumberedShares:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-regulation-31
   description: >
     Returns the disclosure of encumbered shares. Without date parameters, returns the latest 20 records.
-  active: true
+  active: false
 
 sast_pledged:
   endpoint: corporate-pledgedata
@@ -287,7 +292,7 @@ sast_pledged:
   referer: https://www.nseindia.com/companies-listing/corporate-filings-pledged-data
   description: >
     Returns pledged data including promoter and non-promoter pledges.
-  active: true
+  active: false
 
 # Substantial Acquisitions and Disposals
 SubstantialAcquisitionAndDisposal:
@@ -302,7 +307,7 @@ SubstantialAcquisitionAndDisposal:
   description: >
     Returns details of substantial acquisitions and disposals under Regulation 29.
     Without date parameters, returns the latest 20 records.
-  active: true
+  active: false
 
 # Further Issues and Capital Raising
 FIQIP:
@@ -315,7 +320,7 @@ FIQIP:
   description: >
     Returns Qualified Institutional Placement (QIP) details.
     For index, use FIQIPIP for In-Principle approvals or FIQIPLS for listed stage.
-  active: true
+  active: false
 
 FIFCCB:
   endpoint: corporate-further-issues-fccb
@@ -327,7 +332,7 @@ FIFCCB:
   description: >
     Returns Foreign Currency Convertible Bonds (FCCB) details.
     For index, use FIFCCBIP for In-Principle approvals or FIFCCBLS for listed stage.
-  active: true
+  active: false
 
 FIPREF:
   endpoint: corporate-further-issues-pref
@@ -339,7 +344,7 @@ FIPREF:
   description: >
     Returns Preference Shares issue details.
     For index, use FIPREFIP for In-Principle approvals or FIPREFLS for listed stage.
-  active: true
+  active: false
 
 FIRI:
   endpoint: corporate-further-issues-ri
@@ -351,7 +356,7 @@ FIRI:
   description: >
     Returns Rights Issue details.
     For index, use FIRIIP for In-Principle approvals or FIRILS for listed stage.
-  active: true
+  active: false
 
 # Inactive Endpoints (marked as active: false)
 IssuerOfferDocuments:

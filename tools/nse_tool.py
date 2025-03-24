@@ -1,137 +1,49 @@
-import os
-import json
-import yaml
-import requests
-import brotli
-import asyncio
-import aiohttp
-import aiofiles
-import tempfile
-import zipfile
-from typing import Dict, List, Any, Optional, Union, Tuple
-import datetime
-import time
-import random
-from urllib.parse import urlparse
-from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
-
 from base.base_tools import BaseTool, ToolResult
+from typing import Dict, List, Optional, Any, Tuple, Callable
 from utils.logging import get_logger
+from pydantic import BaseModel
+import yaml
+import aiohttp
+from urllib.parse import quote
+import json 
+import brotli
+import datetime
+import asyncio
+from tenacity import retry, stop_after_attempt, wait_exponential
 
+RETRY_LIMIT = 3
+MULTIPLIER = 1
+MIN_WAIT = 2
+MAX_WAIT = 10
 
-class NSEError(Exception):
-    """Base class for NSE-related errors."""
-    pass
-
-
-class NSEConnectionError(NSEError):
-    """Error when connecting to NSE API."""
-    pass
-
-
-class NSERateLimitError(NSEError):
-    """Error when NSE API rate limit is exceeded."""
-    pass
-
-
-class NSEAuthenticationError(NSEError):
-    """Error when authentication with NSE API fails."""
-    pass
-
-
-class NSEDataError(NSEError):
-    """Error when parsing NSE data."""
-    pass
-
-
-class NSEToolConfig(Dict):
-    """Configuration class for NSETool"""
-    def __init__(self, config_dict: Dict[str, Any]):
-        super().__init__(config_dict)
-        
-        # Set default values if not provided
-        self.setdefault("base_url", "https://www.nseindia.com")
-        self.setdefault("requests_before_refresh", 20)
-        self.setdefault("config_path", "assets/nse_config.yaml")
-        self.setdefault("headers_path", "assets/headers.yaml")
-        self.setdefault("cookie_retry_attempts", 3)
-        self.setdefault("retry_limit", 3)
-        self.setdefault("multiplier", 1)
-        self.setdefault("min_wait", 2)
-        self.setdefault("max_wait", 10)
-
+class NSEToolConfig(BaseModel):
+    base_url: str = "https://www.nseindia.com"
+    refresh_interval: int = 25
+    config_path: str = "assets/nse_config.yaml"
+    headers_path: str = "assets/headers.yaml"
+    cookie_path: str = "assets/cookies.yaml"
+    schema_path: str = "assets/nse_schema.yaml"
+    use_hardcoded_cookies: bool = False
+    domain: str = "nseindia.com"
+    company: str 
+    symbol: str
 
 class NSETool(BaseTool):
     name = "nse_tool"
-    
-    def __init__(self, config: Dict[str, Any], company: str = "", symbol: str = ""):
-        self.config_dict = NSEToolConfig(config)
+
+    def __init__(self, config: Dict[str, Any]):
         self.logger = get_logger(self.name)
-        self.base_url = self.config_dict["base_url"]
-        self.domain = "nseindia.com"
-        self.request_count = 0
-        self.requests_before_refresh = self.config_dict["requests_before_refresh"]
-        self.cookie_retry_attempts = self.config_dict.get("cookie_retry_attempts", 3)
-        
-        self.company = company
-        self.symbol = symbol
-        
-        config_path = self.config_dict["config_path"]
-        headers_path = self.config_dict["headers_path"]
-        
-        # Load configurations
-        self.endpoint_config = self._load_yaml_config(config_path)
-        self.headers = self._load_headers(headers_path)
-        
-        # Initialize session with fresh cookies
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
-        self.cookies = self._get_fresh_cookies()
-        
-        # Add cookies to session
-        for name, value in self.cookies.items():
-            self.session.cookies.set(name, value, domain=self.domain)
+        self.config = NSEToolConfig(**config)
+        self.data_config = self._load_yaml(self.config.config_path)
+        self.headers = self._load_yaml(self.config.headers_path)
+        self.cookies = self._load_yaml(self.config.cookie_path) if self.config.use_hardcoded_cookies else None
+        self.session = None
+        self.fallback_referer = "https://www.nseindia.com/companies-listing/corporate-filings-board-meetings"
+        self.stream_processors = self._init_stream_processors()
     
-    def _load_yaml_config(self, config_path: str) -> Dict[str, Any]:
-        try:
-            if not os.path.exists(config_path):
-                self.logger.warning(f"Config file not found: {config_path}")
-                return {}
-                
-            with open(config_path, "r") as f:
-                config_dict = yaml.safe_load(f)
-            return config_dict
-        except Exception as e:
-            error_msg = f"Error loading config: {str(e)}"
-            self.logger.error(error_msg)
-            raise NSEError(error_msg)
-    
-    def _load_headers(self, headers_path: str) -> Dict[str, str]:
-        try:
-            if os.path.exists(headers_path):
-                with open(headers_path, "r") as f:
-                    headers = yaml.safe_load(f)
-                return headers
-            else:
-                self.logger.warning(f"Headers file not found: {headers_path}")
-                # Provide default headers if file not found
-                return {
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Pragma": "no-cache",
-                    "Cache-Control": "no-cache"
-                }
-        except Exception as e:
-            error_msg = f"Error loading headers: {str(e)}"
-            self.logger.error(error_msg)
-            return {}
+    def _load_yaml(self, path: str) -> Dict[str, Any]:
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
     
     def _log_error(self, error_message: str):
         try:
@@ -141,471 +53,391 @@ class NSETool(BaseTool):
                 f.write(f"[{timestamp}] {error_message}\n")
         except Exception as e:
             print(f"Error writing to error log: {e}")
-    
-    def _validate_cookies(self, cookies: Dict[str, str]) -> bool:
-        """Verify if cookies have required tokens."""
-        required_cookies = ['nsit', 'nseappid']
-        is_valid = all(cookie in cookies for cookie in required_cookies)
-        if not is_valid:
-            self.logger.warning(f"Invalid cookies: missing required cookies {required_cookies}")
-            return False
-        return True
-    
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=(
-            retry_if_exception_type(NSEConnectionError) | 
-            retry_if_exception_type(requests.RequestException)
-        )
-    )
-    def _get_fresh_cookies(self) -> Dict[str, str]:
-        """Get fresh cookies from NSE India website."""
-        cookies = {}
-        session = requests.Session()
-        session.headers.update(self.headers)
+
+    async def _create_new_session(self) -> aiohttp.ClientSession:
+        session = aiohttp.ClientSession(headers=self.headers)
         
-        for attempt in range(self.cookie_retry_attempts):
-            try:
-                self.logger.info(f"Getting fresh cookies (attempt {attempt+1}/{self.cookie_retry_attempts})")
-                
-                # Visit main page first to get initial cookies
-                main_page_url = "https://www.nseindia.com/"
-                response = session.get(main_page_url, timeout=15)
-                response.raise_for_status()
-                
-                # Then visit a relevant page to get additional cookies
-                referer_url = "https://www.nseindia.com/companies-listing/corporate-filings-announcements"
-                response = session.get(referer_url, timeout=15)
-                response.raise_for_status()
-                
-                # Convert cookies to dictionary
-                cookies = {cookie.name: cookie.value for cookie in session.cookies}
-                
-                # Validate essential cookies
-                if self._validate_cookies(cookies):
-                    self.logger.info("Successfully obtained fresh cookies")
-                    return cookies
-                else:
-                    self.logger.warning(f"Attempt {attempt+1}: Missing required cookies")
-                    time.sleep(2)
-                    
-            except requests.exceptions.RequestException as e:
-                self.logger.warning(f"Connection error on attempt {attempt+1}: {str(e)}")
-                time.sleep(2)
-            except Exception as e:
-                self.logger.warning(f"Unexpected error on attempt {attempt+1}: {str(e)}")
-                time.sleep(2)
-        
-        # If all attempts fail, raise an error
-        raise NSEAuthenticationError("Failed to get valid cookies after multiple attempts")
-    
-    def _refresh_session_if_needed(self) -> None:
-        """Refresh session cookies if the request count exceeds the threshold."""
-        self.request_count += 1
-        if self.request_count >= self.requests_before_refresh:
-            self.logger.info("Refreshing cookies due to request count threshold")
-            try:
-                # Get fresh cookies
-                new_cookies = self._get_fresh_cookies()
-                
-                # Update session cookies
-                self.session.cookies.clear()
-                for name, value in new_cookies.items():
-                    self.session.cookies.set(name, value, domain=self.domain)
-                
-                self.cookies = new_cookies
-                self.request_count = 0
-            except Exception as e:
-                self.logger.error(f"Error refreshing cookies: {str(e)}")
-                # Continue with existing cookies in case of error
-    
+        if self.config.use_hardcoded_cookies:
+            for name, value in self.cookies.items():
+                session.cookie_jar.update_cookies({name: value}, self.config.base_url)
+        else:
+            await session.get(self.config.base_url)
+            filings_url = f"{self.config.base_url}/companies-listing/corporate-filings-announcements"
+            await session.get(filings_url)
+            self.cookies = {cookie.key: cookie.value for cookie in session.cookie_jar}
+            
+        return session
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=(
-            retry_if_exception_type(NSEConnectionError) | 
-            retry_if_exception_type(NSERateLimitError)
-        )
-    )
-    async def _make_async_request(self, url: str, referer_url: str) -> Optional[Dict[str, Any]]:
-        """Make an async request to NSE API with proper error handling."""
+    stop=stop_after_attempt(RETRY_LIMIT), 
+    wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT),
+    before_sleep=lambda retry_state: retry_state.outcome.exception() and print(f"Retrying _refresh_session due to {retry_state.outcome.exception().__class__.__name__}: {retry_state.outcome.exception()}, attempt {retry_state.attempt_number}"))
+    async def _refresh_session(self, referer: str) -> None:
+        self.logger.info(f"Updating referer: {referer}")
+        
+        if self.session is None:
+            self.session = await self._create_new_session()
+        
+        headers = self.headers.copy()
+        headers["Referer"] = referer
+        
         try:
-            self._refresh_session_if_needed()
-            
-            # Add a small delay to avoid rate limiting
-            await asyncio.sleep(random.uniform(0.5, 2.0))
-            
-            # Update the session's referer
-            self.session.headers.update({"Referer": referer_url})
-            
-            # Create new async session with cookies and headers
-            async with aiohttp.ClientSession(cookies=self.cookies) as session:
-                headers = dict(self.session.headers)
+            async with self.session.get(referer, headers=headers, timeout=10) as response:
+                pass
                 
-                async with session.get(url, headers=headers, timeout=60) as response:
-                    if response.status == 429:
-                        raise NSERateLimitError(f"Rate limit exceeded for URL: {url}")
-                    if response.status == 401 or response.status == 403:
-                        raise NSEAuthenticationError(f"Authentication error for URL: {url}")
-                    if response.status >= 500:
-                        raise NSEConnectionError(f"Server error {response.status} for URL: {url}")
-                    
-                    response.raise_for_status()
-                    
-                    content = await response.content.read()
-                    if not content:
-                        raise NSEDataError(f"Empty response received for URL: {url}")
-                    
-                    if 'br' in response.headers.get('Content-Encoding', ''):
-                        try:
-                            decompressed_content = brotli.decompress(content)
-                            json_text = decompressed_content.decode('utf-8')
-                            return json.loads(json_text)
-                        except Exception as e:
-                            raise NSEDataError(f"Error decompressing/decoding JSON: {str(e)} for URL: {url}")
-                    else:
-                        try:
-                            return json.loads(content.decode('utf-8'))
-                        except json.JSONDecodeError as e:
-                            # Check if we received HTML instead of JSON
-                            content_str = content.decode('utf-8', errors='ignore')
-                            if '<html' in content_str.lower():
-                                if 'login' in content_str.lower() or 'captcha' in content_str.lower():
-                                    raise NSEAuthenticationError("Received login page instead of JSON - session may have expired")
-                            raise NSEDataError(f"Error decoding JSON: {str(e)} for URL: {url}")
-        except aiohttp.ClientError as e:
-            raise NSEConnectionError(f"Connection error for URL {url}: {str(e)}")
-        except NSEError:
-            # Re-raise NSE-specific errors
+            if not self.config.use_hardcoded_cookies:
+                self.cookies = {cookie.key: cookie.value for cookie in self.session.cookie_jar}
+                
+            cookies_dict = {cookie.key: cookie.value for cookie in self.session.cookie_jar}
+            if 'nsit' not in cookies_dict and not self.config.use_hardcoded_cookies:
+                raise Exception("Required nsit cookie not found")
+        except Exception as e:
+            self._log_error(f"Error refreshing session: {str(e)}")
             raise
-        except Exception as e:
-            raise NSEError(f"Request error for URL {url}: {str(e)}")
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=(
-            retry_if_exception_type(NSEConnectionError) | 
-            retry_if_exception_type(NSERateLimitError)
-        )
-    )
-    async def download_file(self, url: str, file_type: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[bytes]]:
-        """Download a file from NSE with improved error handling."""
-        try:
-            if not file_type:
-                parsed_url = urlparse(url)
-                path = parsed_url.path
-                file_type = path.split('.')[-1].lower() if '.' in path else "unknown"
-            
-            self._refresh_session_if_needed()
-            
-            # Add a small delay to avoid rate limiting
-            await asyncio.sleep(random.uniform(0.5, 2.0))
-            
-            # Create new async session with cookies and headers
-            async with aiohttp.ClientSession(cookies=self.cookies) as session:
-                headers = dict(self.session.headers)
-                headers["Referer"] = f"{self.base_url}/companies-listing/corporate-filings"
-                
-                async with session.get(url, headers=headers, timeout=60) as response:
-                    if response.status == 429:
-                        raise NSERateLimitError(f"Rate limit exceeded for URL: {url}")
-                    if response.status == 401 or response.status == 403:
-                        raise NSEAuthenticationError(f"Authentication error for URL: {url}")
-                    if response.status >= 500:
-                        raise NSEConnectionError(f"Server error {response.status} for URL: {url}")
-                    
-                    response.raise_for_status()
-                    content = await response.read()
-                    
-                    filename = None
-                    if 'Content-Disposition' in response.headers:
-                        content_disp = response.headers['Content-Disposition']
-                        if 'filename=' in content_disp:
-                            filename = content_disp.split('filename=')[1].strip('"\'')
-                    
-                    if not filename:
-                        path = urlparse(url).path
-                        filename = os.path.basename(path)
-                        if not filename:
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                            filename = f"nse_download_{timestamp}.{file_type}"
-                    
-                    temp_path = os.path.join(tempfile.gettempdir(), filename)
-                    
-                    async with aiofiles.open(temp_path, 'wb') as f:
-                        await f.write(content)
-                    
-                    if file_type.lower() == 'zip':
-                        try:
-                            extract_dir = tempfile.mkdtemp()
-                            with zipfile.ZipFile(temp_path, 'r') as zip_ref:
-                                zip_ref.extractall(extract_dir)
-                            
-                            os.remove(temp_path)
-                            return True, extract_dir, None
-                        except Exception as e:
-                            raise NSEDataError(f"Error extracting ZIP file: {str(e)}")
-                    
-                    return True, temp_path, content
-        except aiohttp.ClientError as e:
-            raise NSEConnectionError(f"Connection error downloading file: {str(e)}")
-        except NSEError:
-            # Re-raise NSE-specific errors
-            raise
-        except Exception as e:
-            raise NSEError(f"Error downloading file: {str(e)}")
-    
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type(NSEConnectionError)
-    )
-    async def detect_file_type(self, url: str) -> str:
-        """Detect file type from URL or headers with improved error handling."""
-        try:
-            parsed_url = urlparse(url)
-            path = parsed_url.path
-            if '.' in path:
-                ext = path.split('.')[-1].lower()
-                if ext in ['pdf', 'xml', 'zip', 'xbrl']:
-                    return ext
-            
-            self._refresh_session_if_needed()
-            
-            # Add a small delay to avoid rate limiting
-            await asyncio.sleep(random.uniform(0.3, 1.0))
-            
-            # Create new async session with cookies and headers
-            async with aiohttp.ClientSession(cookies=self.cookies) as session:
-                headers = dict(self.session.headers)
-                headers["Referer"] = f"{self.base_url}/companies-listing/corporate-filings"
-                
-                async with session.head(url, headers=headers, timeout=10) as response:
-                    response.raise_for_status()
-                    
-                    if 'Content-Type' in response.headers:
-                        content_type = response.headers['Content-Type']
-                        if 'application/pdf' in content_type:
-                            return 'pdf'
-                        elif 'application/xml' in content_type or 'text/xml' in content_type:
-                            return 'xml'
-                        elif 'application/zip' in content_type:
-                            return 'zip'
-                        
-                    if 'Content-Disposition' in response.headers:
-                        content_disp = response.headers['Content-Disposition']
-                        if 'filename=' in content_disp:
-                            filename = content_disp.split('filename=')[1].strip('"\'')
-                            if '.' in filename:
-                                return filename.split('.')[-1].lower()
-            
-            return 'bin'
-        except aiohttp.ClientError as e:
-            raise NSEConnectionError(f"Connection error detecting file type: {str(e)}")
-        except Exception as e:
-            raise NSEError(f"Error detecting file type: {str(e)}")
-    
-    def get_available_streams(self) -> List[Dict[str, Any]]:
-        """Get available data streams from configuration."""
-        streams = []
+    def get_available_data_streams(self) -> Dict[str, Dict[str, Any]]:
+        active_streams = {}
         
-        for key, config in self.endpoint_config.items():
-            if isinstance(config, dict) and config.get("active", False):
-                stream_info = {
-                    "key": key,
-                    "endpoint": config.get("endpoint", ""),
-                    "description": config.get("description", ""),
-                    "params": config.get("params", {})
+        for key, config in self.data_config.items():
+            if config.get('active', False):
+                active_streams[key] = {
+                    'params': config.get('params', {}),
+                    'description': config.get('description', '')
                 }
-                streams.append(stream_info)
-                
-        return streams
+        
+        return active_streams
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=(
-            retry_if_exception_type(NSEConnectionError) | 
-            retry_if_exception_type(NSERateLimitError)
-        )
-    )
-    async def fetch_data(self, stream_key: str, **kwargs) -> List[Dict[str, Any]]:
-        """Fetch data from a specific stream with improved error handling."""
-        try:
-            if stream_key not in self.endpoint_config:
-                raise NSEError(f"Stream key not found: {stream_key}")
+    @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
+    async def make_request(self, url, referer):
+        try: 
+            await self._refresh_session(referer)
+            
+            async with self.session.get(url, headers=self.headers, timeout=60) as response:
+                response.raise_for_status()
                 
-            endpoint_config = self.endpoint_config[stream_key]
-            
-            if not isinstance(endpoint_config, dict) or not endpoint_config.get("active", False):
-                raise NSEError(f"Stream is inactive or invalid: {stream_key}")
-                
-            endpoint = endpoint_config.get("endpoint", "")
-            
-            if not endpoint:
-                raise NSEError(f"Endpoint URL not found for: {stream_key}")
-                
-            referer_suffix = endpoint_config.get("referer", "corporate-filings-announcements")
-            if referer_suffix.startswith("http"):
-                referer_url = referer_suffix
-            else:
-                referer_url = f"{self.base_url}/companies-listing/{referer_suffix}"
-            
-            params = {}
-            config_params = endpoint_config.get("params", {})
-            
-            if self.company and "issuer" in config_params:
-                params["issuer"] = self.company
-            
-            if self.symbol and "symbol" in config_params:
-                params["symbol"] = self.symbol
-            
-            for key, value in kwargs.items():
-                if key in config_params and value is not None and value != "":
-                    params[key] = value
-            
-            url_extension = endpoint + "?" + "&".join([f"{key}={value}" for key, value in params.items() if value])
-            url = self.base_url + "/api/" + url_extension
-            
-            # Try up to 3 times with increasing delays
-            for attempt in range(3):
-                if attempt > 0:
-                    # Refresh cookies between attempts
+                content = await response.read()
+                if not content:
+                    self._log_error(f"Empty response received for URL: {url}")
+                    return None
+
+                if 'br' in response.headers.get('Content-Encoding', ''):
                     try:
-                        new_cookies = self._get_fresh_cookies()
-                        self.cookies = new_cookies
-                        self.session.cookies.clear()
-                        for name, value in new_cookies.items():
-                            self.session.cookies.set(name, value, domain=self.domain)
+                        decompressed_content = brotli.decompress(content)
+                        json_text = decompressed_content.decode('utf-8')
+                        return json.loads(json_text)
                     except Exception as e:
-                        self.logger.warning(f"Failed to refresh cookies: {str(e)}")
-                    
-                    # Increase wait time with each attempt
-                    await asyncio.sleep(2 * attempt)
+                        self._log_error(f"Error decompressing/decoding JSON: {str(e)} for URL: {url}")
+                        return None
+                else:
+                    try:
+                        text = await response.text()
+                        return json.loads(text)
+                    except json.JSONDecodeError as e:
+                        self._log_error(f"Error decoding JSON: {str(e)} for URL: {url}")
+                        return None
                 
-                result = await self._make_async_request(url, referer_url)
-                
-                if result:
-                    data_list = result.get("data", result)
-                    
-                    if isinstance(data_list, list):
-                        max_results = kwargs.get("max_results", 20)
-                        if max_results and len(data_list) > max_results:
-                            data_list = data_list[:max_results]
-                        return data_list
-                    else:
-                        self.logger.warning(f"Invalid data format for {stream_key}: not a list")
-                        continue  # Try again if format is invalid
-            
-            # If we get here, all attempts failed
-            raise NSEDataError(f"Failed to fetch valid data after multiple attempts for stream: {stream_key}")
-            
-        except NSEError:
-            # Re-raise NSE-specific errors
-            raise
+        except aiohttp.ClientError as e:
+            self._log_error(f"Request error for URL {url}: {str(e)}")
+            return None
         except Exception as e:
-            raise NSEError(f"Error fetching data for {stream_key}: {str(e)}")
-    
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=1, min=2, max=10),
-        retry=(
-            retry_if_exception_type(NSEConnectionError) | 
-            retry_if_exception_type(NSERateLimitError)
-        )
-    )
-    async def fetch_multiple(self, actions_params: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Fetch data from multiple streams with improved error handling."""
-        results = {}
-        errors = {}
+            self._log_error(f"Unexpected error for URL {url}: {str(e)}")
+            return None
+
+    @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
+    async def fetch_data_from_nse(self, stream: str, input_params: Dict[str, Any]) -> List:
+        stream_config = self.data_config.get(stream)
+        if not stream_config:
+            raise ValueError(f"Stream not found: {stream}")
         
-        for stream_key, params in actions_params.items():
-            try:
-                if stream_key not in self.endpoint_config:
-                    errors[stream_key] = f"Unknown stream: {stream_key}"
-                    continue
-                    
-                if not isinstance(self.endpoint_config[stream_key], dict) or not self.endpoint_config[stream_key].get("active", False):
-                    errors[stream_key] = f"Stream is inactive: {stream_key}"
-                    continue
-                    
-                data = await self.fetch_data(stream_key, **params)
-                results[stream_key] = data
-                
-                # Add a small delay between requests
-                await asyncio.sleep(random.uniform(0.5, 2.0))
-                
-            except NSEError as e:
-                self.logger.error(f"Error fetching {stream_key}: {str(e)}")
-                errors[stream_key] = str(e)
-        
-        # Include errors in the result if any
-        if errors:
-            results["_errors"] = errors
+        params = stream_config.get('params', {}).copy() 
+        if "issuer" in params:
+            params["issuer"] = self.config.company
+        if "symbol" in params:
+            params["symbol"] = self.config.symbol
+        params.update(input_params)
+
+        url = self._construct_url(stream_config.get("endpoint"), params)
+        print(url)
+        result = await self.make_request(url, stream_config.get("referer", self.fallback_referer))
+        print(result)
+        if result:
+            max_results = input_params.get("max_results", 20)
             
-        return results
-    async def _execute(self, command: str, **kwargs) -> ToolResult:
-        return await self.run(command, **kwargs)
+            if isinstance(result, list):
+                data_list = result
+                if max_results and len(data_list) > max_results:
+                    data_list = data_list[:max_results]
+                return data_list
+            elif isinstance(result, dict):
+                data_list = result.get("data", result)
+                if isinstance(data_list, list):
+                    if max_results and len(data_list) > max_results:
+                        data_list = data_list[:max_results]
+                    return data_list
+                else:
+                    return [result]
+            return [result]
+        else:
+            self._log_error(f"Unable to retrieve data from: {url}")
+            return []
+
+    async def fetch_data_from_multiple_streams(self, stream_dict: Dict[str, Dict[str, Any]]) -> Dict[str, List]:
+        resp_dict = {}
+        tasks = []
         
-    async def run(self, command: str, **kwargs) -> ToolResult:
-        """Execute a command with standardized error handling."""
+        for key, config in stream_dict.items():
+            if config.get("active", False):
+                processor = self.stream_processors.get(key)
+                if processor:
+                    task = asyncio.create_task(
+                        processor(config.get("input_params", {}), self._get_schema(key))
+                    )
+                    tasks.append((key, task))
+                else:
+                    task = asyncio.create_task(
+                        self.fetch_data_from_nse(key, config.get("input_params", {}))
+                    )
+                    tasks.append((key, task))
+        
+        for key, task in tasks:
+            try:
+                resp_dict[key] = await task
+            except Exception as e:
+                self._log_error(f"Error fetching data for stream {key}: {str(e)}")
+                resp_dict[key] = []
+                
+        return resp_dict
+
+    def _construct_url(self, endpoint: str, params: Dict[str, Any]) -> str:
+        filtered_params = {k: v for k, v in params.items() if v is not None and v != ""}
+        
+        base_url = f"{self.config.base_url}/api/{endpoint}"
+        
+        if filtered_params:
+            query_parts = []
+            for key, value in filtered_params.items():
+                encoded_value = quote(str(value))
+                query_parts.append(f"{key}={encoded_value}")
+            
+            query_string = "&".join(query_parts)
+            return f"{base_url}?{query_string}"
+        
+        return base_url
+    
+    async def close(self):
+        if self.session:
+            await self.session.close()
+
+    def _filter_on_schema(self, data, schema):
+        if not data or not isinstance(data, list):
+            raise TypeError(f"Expected list recieved {type(data)}")
+        return [{new_key: entry[old_key] for new_key, old_key in schema.items() if old_key in entry} for entry in data]
+    
+    def _get_schema(self, stream_name: str) -> Dict[str, str]:
+        schema_data = self._load_yaml(self.config.schema_path)
+        return schema_data.get(stream_name, {})
+    
+    async def _process_stream(self, stream: str, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        data = await self.fetch_data_from_nse(stream, params)
+        filtered_data = self._filter_on_schema(data, schema)
+        return filtered_data
+    
+    async def _process_announcements(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        return await self._process_stream("Announcements", params, schema)
+    
+    async def _process_ann_xbrl(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        data = await self.fetch_data_from_nse("AnnXBRL", params)
+        filtered_data = self._filter_on_schema(data, schema)
+        for entry in filtered_data:
+            app_id = entry.get("appId")
+            if app_id:
+                entry["details"] = await self._get_announcement_details(app_id, params)
+        return filtered_data
+    
+    async def _get_announcement_details(self, appId: str, params: Dict[str, Any]):
         try:
-            if command in self.endpoint_config and isinstance(self.endpoint_config[command], dict) and self.endpoint_config[command].get("active", False):
-                data = await self.fetch_data(command, **kwargs)
-                return ToolResult(success=True, data=data)
+            data = await self.fetch_data_from_nse("AnnXBRLDetails", {"appId": appId, "type": params.get("type", "announcements")})
+            return data[0] if data else {}
+        except:
+            self._log_error("Failed to get announcement details")
+            return {}
+    
+    async def _process_annual_reports(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        return await self._process_stream("AnnualReports", params, schema)
+    
+    async def _process_esg_reports(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        return await self._process_stream("BussinessSustainabilitiyReport", params, schema)
+    
+    async def _process_board_meetings(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        return await self._process_stream("BoardMeetings", params, schema)
+    
+    async def _process_corporate_actions(self, params: Dict[str, Any], schema: Dict[str, str]) -> List[Dict[str, Any]]:
+        return await self._process_stream("CorporateActions", params, schema)
+    
+    def _init_stream_processors(self) -> Dict[str, Callable]:
+        return {
+            "Announcements": self._process_announcements,
+            "AnnXBRL": self._process_ann_xbrl,
+            "AnnualReports": self._process_annual_reports,
+            "BussinessSustainabilitiyReport": self._process_esg_reports,
+            "BoardMeetings": self._process_board_meetings,
+            "CorporateActions": self._process_corporate_actions,
+        }
+    
+    @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
+    async def run(self, command: str, **kwargs) -> ToolResult:
+        try:
+            if command == "fetch_data":
+                stream = kwargs.get("stream")
+                input_params = kwargs.get("input_params", {})
+                schema = kwargs.get("schema")
+                
+                if not stream:
+                    return ToolResult(success=False, error="Stream parameter is required for fetch_data command")
+                
+                processor = self.stream_processors.get(stream)
+                if processor and not schema:
+                    schema = self._get_schema(stream)
+                    data = await processor(input_params, schema)
+                else:
+                    data = await self.fetch_data_from_nse(stream, input_params)
+                    if schema:
+                        data = self._filter_on_schema(data, schema)
                     
+                return ToolResult(success=True, data=data)
+            
             elif command == "fetch_multiple":
-                actions_params = kwargs.get("actions_params", {})
-                if not actions_params:
-                    return ToolResult(success=False, error="actions_params dictionary is required")
-                    
-                data = await self.fetch_multiple(actions_params)
+                stream_dict = kwargs.get("stream_dict")
+                
+                if not stream_dict:
+                    return ToolResult(success=False, error="Stream dictionary is required for fetch_multiple command")
+                
+                data = await self.fetch_data_from_multiple_streams(stream_dict)
                 return ToolResult(success=True, data=data)
-                    
-            elif command == "download_file":
-                url = kwargs.get("url")
-                file_type = kwargs.get("file_type")
-                
-                if not url:
-                    return ToolResult(success=False, error="URL is required for download_file command")
-                    
-                success, file_path, content = await self.download_file(url, file_type)
-                
-                if not success:
-                    return ToolResult(success=False, error="Failed to download file")
-                    
-                return ToolResult(success=True, data={"file_path": file_path, "file_type": file_type})
-                    
+            
             elif command == "get_streams":
-                streams = self.get_available_streams()
+                streams = self.get_available_data_streams()
                 return ToolResult(success=True, data=streams)
-                    
+                
+            elif command == "get_announcements":
+                params = kwargs.get("params", {})
+                schema = kwargs.get("schema")
+                
+                if not schema:
+                    schema = self._get_schema("Announcements")
+                
+                data = await self._process_announcements(params, schema)
+                return ToolResult(success=True, data=data)
+                
+            elif command == "get_announcements_xbrl":
+                params = kwargs.get("params", {})
+                schema = kwargs.get("schema")
+                
+                if not schema:
+                    schema = self._get_schema("AnnXBRL")
+                
+                data = await self._process_ann_xbrl(params, schema)
+                return ToolResult(success=True, data=data)
+            
             else:
                 return ToolResult(success=False, error=f"Unknown command: {command}")
-                    
-        except NSEConnectionError as e:
-            error_message = f"Connection error: {str(e)}"
-            self.logger.error(error_message)
-            return ToolResult(success=False, error=error_message)
-        except NSERateLimitError as e:
-            error_message = f"Rate limit exceeded: {str(e)}"
-            self.logger.error(error_message)
-            return ToolResult(success=False, error=error_message)
-        except NSEAuthenticationError as e:
-            error_message = f"Authentication error: {str(e)}"
-            self.logger.error(error_message)
-            return ToolResult(success=False, error=error_message)
-        except NSEDataError as e:
-            error_message = f"Data error: {str(e)}"
-            self.logger.error(error_message)
-            return ToolResult(success=False, error=error_message)
-        except NSEError as e:
-            error_message = f"NSE error: {str(e)}"
-            self.logger.error(error_message)
-            return ToolResult(success=False, error=error_message)
+            
         except Exception as e:
-            error_message = f"Unexpected error: {str(e)}"
+            error_message = f"Error in NSE tool: {str(e)}"
             self.logger.error(error_message)
-            return await self._handle_error(e)
+            return ToolResult(success=False, error=error_message)
+
+if __name__ == "__main__":
+    config = {
+        "company": "Reliance Industries Limited",
+        "symbol": "RELIANCE",
+    } 
+    date_params = {
+        "from_date": "01-09-2024",
+        "to_date": "23-03-2025"
+    }
+    date_params_2 = {
+        "from_date": "24-02-2025",
+        "to_date": "24-03-2025"
+    }
+
+    async def test_stream(tool, stream_name, params=None):
+        try:
+            params = params or {}
+            print(f"\n=== Testing {stream_name} with params: {params} ===")
+            result = await tool.fetch_data_from_nse(stream_name, params)
+            if result:
+                print(f"{stream_name} Results: {len(result)} items")
+                if len(result) > 0:
+                    print(f"First item keys: {list(result[0].keys())[:5]}")
+            else:
+                print(f"{stream_name} returned no results")
+            return result
+        except Exception as e:
+            print(f"Error testing {stream_name}: {str(e)}")
+            return []
+
+    async def test():
+        tool = None
+        try:
+            tool = NSETool(config)
+            
+            # Test individual streams with appropriate parameters
+            streams_to_test = [
+                ("CreditRating", {}),
+                ("Announcements", date_params_2),
+                ("BoardMeetings", date_params),
+                ("CorporateActions", date_params),
+                ("BussinessSustainabilitiyReport", {}),
+                ("AnnualReports", {}),
+                ("AnnXBRL", date_params)
+            ]
+            
+            for stream_name, params in streams_to_test:
+                await test_stream(tool, stream_name, params)
+            
+            # Test schema processing
+            print("\n=== Testing schema processing for Announcements ===")
+            try:
+                schema = tool._get_schema("Announcements")
+                print(f"Schema keys: {schema.keys()}")
+                filtered = await tool._process_announcements(date_params_2, schema)
+                print(f"Filtered Results: {len(filtered)} items")
+                if filtered and len(filtered) > 0:
+                    print(f"Filtered keys: {filtered[0].keys()}")
+            except Exception as e:
+                print(f"Error during schema processing: {str(e)}")
+            
+            # Test multiple streams with safe error handling
+            print("\n=== Testing multiple streams fetch ===")
+            try:
+                stream_dict = {
+                    "Announcements": {
+                        "active": True,
+                        "input_params": date_params_2
+                    },
+                    "BoardMeetings": {
+                        "active": True,
+                        "input_params": date_params
+                    },
+                    "CorporateActions": {
+                        "active": True,
+                        "input_params": date_params
+                    }
+                }
+                
+                multi_results = await tool.fetch_data_from_multiple_streams(stream_dict)
+                print(f"Multiple streams results: {len(multi_results)} streams")
+                for stream_name, stream_data in multi_results.items():
+                    print(f"  {stream_name}: {len(stream_data)} items")
+            except Exception as e:
+                print(f"Error in multiple streams test: {str(e)}")
+                
+        except Exception as e:
+            print(f"Global error in tests: {str(e)}")
+        finally:
+            if tool:
+                await tool.close()
+                print("\nConnection closed properly")
+    
+    asyncio.run(test())
