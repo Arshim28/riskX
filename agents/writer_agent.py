@@ -758,6 +758,10 @@ class WriterAgent(BaseAgent):
                 
         return improved_sections
     
+    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return await self.run(state)
+
+
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         self._log_start(state)
         
