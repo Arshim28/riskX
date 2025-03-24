@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Tuple, Optional, Set
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from base.base_agents import BaseAgent
+from base.base_agents import BaseAgent, AgentState
 from utils.llm_provider import get_llm_provider
 from utils.prompt_manager import get_prompt_manager
 from utils.logging import get_logger
@@ -75,9 +75,31 @@ class WriterAgent(BaseAgent):
         self.critical_error_threshold = 3
         
         # Initialize templates
-        asyncio.create_task(self.load_templates())
+        if asyncio.get_event_loop().is_running():
+            asyncio.create_task(self.load_templates())
+    
+    async def _get_optimal_concurrency(self) -> int:
+        """Determine optimal concurrency based on system load."""
+        try:
+            import psutil
+            cpu_count = psutil.cpu_count(logical=False) or 4
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            
+            if cpu_percent > 80 or memory_percent > 85:
+                return max(1, self.max_concurrent_sections // 4)  # High load - reduce concurrency
+            elif cpu_percent > 60 or memory_percent > 70:
+                return max(1, self.max_concurrent_sections // 2)  # Medium load - moderate concurrency
+            else:
+                return self.max_concurrent_sections  # Low load - use configured concurrency
+        except ImportError:
+            return min(2, self.max_concurrent_sections)  # Conservative default if psutil not available
     
     async def load_templates(self) -> None:
+        if self.loaded_templates:
+            return
+            
         try:
             result = await self.postgres_tool.run(
                 command="execute_query",
@@ -774,6 +796,7 @@ class WriterAgent(BaseAgent):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_meta_feedback(self, company: str, full_report: str) -> Dict[str, Any]:
+        """Generating meta feedback for report quality"""
         self.logger.info(f"Generating meta feedback for {company} report")
         
         try:
@@ -811,6 +834,7 @@ class WriterAgent(BaseAgent):
                     "improvements": ["Unable to parse specific improvements"]
                 }
             
+            # Ensure we always add to feedback history
             self.feedback_history.append({
                 "timestamp": datetime.now().isoformat(),
                 "feedback": feedback
@@ -828,12 +852,21 @@ class WriterAgent(BaseAgent):
             return feedback
         except Exception as e:
             self.logger.error(f"Error generating meta feedback: {str(e)}")
-            return {
+            # Create default feedback even on error
+            default_feedback = {
                 "quality_score": 6,
                 "strengths": ["Unable to generate detailed feedback due to error"],
                 "weaknesses": ["Error in feedback generation process"],
                 "improvements": [f"Retry feedback generation: {str(e)}"]
             }
+            
+            # Add to feedback history even on error
+            self.feedback_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "feedback": default_feedback
+            })
+            
+            return default_feedback
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_executive_briefing(self, company: str, full_report: str) -> str:
@@ -1043,6 +1076,47 @@ Based on our analysis of {company}, we recommend:
         except Exception as e:
             self.logger.error(f"Failed to save workflow status: {str(e)}")
     
+    async def integrate_analysis_results(self, company: str, analysis_results: Dict[str, Any]) -> None:
+        """Integrate analysis results with template data for better reporting"""
+        self.logger.info(f"Integrating analysis results for {company}")
+        
+        if hasattr(self, 'current_template') and self.current_template:
+            if "event_synthesis" in analysis_results:
+                self.current_template.variables["event_synthesis"] = analysis_results["event_synthesis"]
+                
+            if "red_flags" in analysis_results:
+                self.current_template.variables["red_flags"] = analysis_results["red_flags"]
+                
+            if "entity_network" in analysis_results:
+                self.current_template.variables["entity_network"] = analysis_results["entity_network"]
+                
+            if "timeline" in analysis_results:
+                self.current_template.variables["timeline"] = analysis_results["timeline"]
+                
+            if "company_analysis" in analysis_results:
+                self.current_template.variables["company_analysis"] = analysis_results["company_analysis"]
+                
+            self.logger.info("Successfully integrated analysis results into template")
+    
+    async def close_resources(self):
+        """Close and cleanup any resources held by the agent"""
+        try:
+            # Close any open files, database connections, etc.
+            if hasattr(self, 'postgres_tool'):
+                await self.postgres_tool.run(command="close")
+            self.logger.info("Resources cleaned up successfully")
+        except Exception as e:
+            self.logger.error(f"Error during resource cleanup: {str(e)}")
+    
+    def __del__(self):
+        """Cleanup resources when object is destroyed"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.close_resources())
+        except:
+            pass
+    
     async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         return await self.run(state)
 
@@ -1087,6 +1161,9 @@ Based on our analysis of {company}, we recommend:
                 other_events = state["other_events"]
                 
             self.logger.info(f"Selected {len(top_events)} events for detailed analysis and {len(other_events)} for summary")
+            
+            # Integrate analysis results with template data
+            await self.integrate_analysis_results(company, analysis_results)
             
             # Generate workflow status
             status = await self.generate_workflow_status(state)

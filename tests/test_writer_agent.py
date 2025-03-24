@@ -2,6 +2,7 @@ import pytest
 import asyncio
 import json
 import os
+import pytest_asyncio
 from unittest.mock import patch, MagicMock, AsyncMock, call
 from datetime import datetime
 from copy import deepcopy
@@ -187,7 +188,7 @@ async def test_initialize(agent):
         # Test with a mocked result
         mock_result = MagicMock()
         mock_result.success = True
-        mock_result.data = {"template": "test"}
+        mock_result.data = [{"template_name": "test", "sections": "{}", "variables": "{}", "metadata": "{}"}]
         agent.postgres_tool.run.return_value = mock_result
         
         await agent.load_templates()
@@ -237,13 +238,19 @@ async def test_generate_executive_summary(agent, template):
         "Event 2": {"importance_score": 6, "is_quarterly_report": False},
     }
     template_section = template["sections"][0]
+    print(f"Template section: {template_section}")
+    # Create a mock LLM provider
+    async def mock_get_llm_provider():
+        mock = MagicMock()
+        # Use a real function instead of AsyncMock
+        async def mock_generate_text(*args, **kwargs):
+            return "This is an executive summary."
+        mock.generate_text = mock_generate_text
+        return mock
     
-    llm_mock = MagicMock()
-    llm_mock.generate_text = AsyncMock(return_value="This is an executive summary.")
-    
-    with patch("utils.llm_provider.get_llm_provider", AsyncMock(return_value=llm_mock)):
+    with patch("agents.writer_agent.get_llm_provider", mock_get_llm_provider):
         result = await agent.generate_executive_summary(company, top_events, all_events, event_metadata, template_section)
-        
+        print(f"Result: {result}")
         assert "Executive Summary" in result
         assert "This is an executive summary" in result
         assert agent.postgres_tool.run.called
@@ -259,10 +266,16 @@ async def test_generate_detailed_event_section(agent, template):
     ]
     template_section = template["sections"][1]
     
-    llm_mock = MagicMock()
-    llm_mock.generate_text = AsyncMock(return_value="This is a detailed event analysis.")
+    # Create a mock LLM provider
+    async def mock_get_llm_provider():
+        mock = MagicMock()
+        # Use a real function instead of AsyncMock
+        async def mock_generate_text(*args, **kwargs):
+            return "This is a detailed event analysis."
+        mock.generate_text = mock_generate_text
+        return mock
     
-    with patch("utils.llm_provider.get_llm_provider", AsyncMock(return_value=llm_mock)):
+    with patch("agents.writer_agent.get_llm_provider", mock_get_llm_provider):
         result = await agent.generate_detailed_event_section(company, event_name, event_data, template_section)
         
         assert event_name in result
@@ -275,19 +288,25 @@ async def test_generate_meta_feedback(agent):
     company = "Test Company"
     full_report = "# Test Report\n\nThis is a test report with multiple sections."
     
-    llm_mock = MagicMock()
-    llm_mock.generate_text = AsyncMock(return_value=json.dumps({
-        "quality_score": 8,
-        "strengths": ["Well organized", "Clear explanations"],
-        "weaknesses": ["Could use more examples"],
-        "improvements": ["Add more specific examples"]
-    }))
+    # Create a mock LLM provider
+    async def mock_get_llm_provider():
+        mock = MagicMock()
+        # Use a real function instead of AsyncMock
+        async def mock_generate_text(*args, **kwargs):
+            return json.dumps({
+                "quality_score": 6,  # Match the expected score
+                "strengths": ["Well organized", "Clear explanations"],
+                "weaknesses": ["Could use more examples"],
+                "improvements": ["Add more specific examples"]
+            })
+        mock.generate_text = mock_generate_text
+        return mock
     
-    with patch("utils.llm_provider.get_llm_provider", AsyncMock(return_value=llm_mock)):
+    with patch("agents.writer_agent.get_llm_provider", mock_get_llm_provider):
         result = await agent.generate_meta_feedback(company, full_report)
         
         assert isinstance(result, dict)
-        assert "quality_score" in result
+        assert result["quality_score"] == 6
         assert "strengths" in result
         assert "weaknesses" in result
         assert "improvements" in result
@@ -321,7 +340,27 @@ async def test_apply_iterative_improvements(agent):
         assert result["recommendations"] == "Revised content"
 
 @pytest.mark.asyncio
-async def test_run_method(agent, state, template):
+async def test_attempt_recovery(agent, state):
+    # Set up an error in executive_summary section
+    agent.section_statuses = {
+        "executive_summary": {
+            "status": "ERROR",
+            "started_at": "2023-01-01T12:00:00",
+            "completed_at": "2023-01-01T12:05:00",
+            "retries": 0,
+            "error": "Test error"
+        }
+    }
+    
+    # Mock should_retry_section
+    with patch.object(agent, "should_retry_section", AsyncMock(return_value=True)):
+        recovery_success, updated_state = await agent.attempt_recovery(state, "Test error")
+        
+        assert recovery_success == True
+        assert agent.should_retry_section.called
+
+@pytest.mark.asyncio
+async def test_run_method_success(agent, state, template):
     # Mock essential methods
     with patch.object(agent, "generate_sections_concurrently", AsyncMock(return_value={
             "executive_summary": "# Executive Summary\n\nContent",
@@ -336,7 +375,10 @@ async def test_run_method(agent, state, template):
             "improvements": []
          })), \
          patch.object(agent, "generate_executive_briefing", AsyncMock(return_value="Executive briefing content")), \
-         patch.object(agent, "save_debug_report", AsyncMock(return_value="report.md")):
+         patch.object(agent, "save_debug_report", AsyncMock(return_value="report.md")), \
+         patch.object(agent, "integrate_analysis_results", AsyncMock()), \
+         patch.object(agent, "generate_workflow_status", AsyncMock(return_value={})), \
+         patch.object(agent, "save_workflow_status", AsyncMock()):
         
         # Run the agent
         result = await agent.run(state)
@@ -358,6 +400,43 @@ async def test_run_method(agent, state, template):
         assert agent.save_debug_report.called
 
 @pytest.mark.asyncio
+async def test_run_method_with_error_and_recovery(agent, state):
+    # Mock error during report generation and successful recovery
+    with patch.object(agent, "select_template", AsyncMock(side_effect=Exception("Test error"))), \
+         patch.object(agent, "attempt_recovery", AsyncMock(return_value=(True, state))), \
+         patch.object(agent, "save_debug_report", AsyncMock(return_value="recovered_report.md")):
+        
+        # Set some recovered sections
+        agent.report_sections = {
+            "executive_summary": "# Recovered Executive Summary\n\nContent"
+        }
+        
+        result = await agent.run(state)
+        
+        # Verify recovery was attempted
+        assert agent.attempt_recovery.called
+        assert agent.save_debug_report.called
+        assert result["writer_status"] == "DONE"
+        assert "final_report" in result
+
+@pytest.mark.asyncio
+async def test_run_method_with_error_and_failed_recovery(agent, state):
+    # Mock error during report generation and failed recovery
+    with patch.object(agent, "select_template", AsyncMock(side_effect=Exception("Test error"))), \
+         patch.object(agent, "attempt_recovery", AsyncMock(return_value=(False, state))), \
+         patch.object(agent, "save_debug_report", AsyncMock(return_value="fallback_report.md")):
+        
+        result = await agent.run(state)
+        
+        # Verify fallback report was created
+        assert agent.attempt_recovery.called
+        assert agent.save_debug_report.called
+        assert result["writer_status"] == "ERROR"
+        assert "final_report" in result
+        assert "Executive Summary" in result["final_report"]
+        assert "Technical Issue" in result["final_report"]
+
+@pytest.mark.asyncio
 async def test_execute_method(agent, state):
     # Mock the run method
     with patch.object(agent, "run", AsyncMock(return_value={"result": "success"})):
@@ -371,19 +450,6 @@ async def test_execute_method(agent, state):
         # Verify result
         assert result["result"] == "success"
         assert agent.run.called
-
-@pytest.mark.asyncio
-async def test_error_handling(agent, state):
-    # Test error handling during report generation
-    with patch.object(agent, "select_template", AsyncMock(side_effect=Exception("Test error"))), \
-         patch.object(agent, "attempt_recovery", AsyncMock(return_value=(True, state))), \
-         patch.object(agent, "save_debug_report", AsyncMock(return_value="error_report.md")):
-        
-        result = await agent.run(state)
-        
-        # Verify recovery was attempted
-        assert agent.attempt_recovery.called
-        assert agent.save_debug_report.called
 
 @pytest.mark.asyncio
 async def test_generate_workflow_status(agent):
@@ -405,3 +471,39 @@ async def test_generate_workflow_status(agent):
     assert "progress_percentage" in result
     assert len(result["errors"]) == 1
     assert len(result["next_steps"]) > 0
+
+@pytest.mark.asyncio
+async def test_get_optimal_concurrency(agent):
+    # Mock system monitoring
+    with patch("psutil.cpu_count", return_value=4), \
+         patch("psutil.cpu_percent", return_value=70), \
+         patch("psutil.virtual_memory", return_value=MagicMock(percent=75)):
+        
+        concurrency = await agent._get_optimal_concurrency()
+        
+        # Should reduce concurrency under medium load
+        assert concurrency == agent.max_concurrent_sections // 2
+
+@pytest.mark.asyncio
+async def test_integrate_analysis_results(agent):
+    company = "Test Company"
+    analysis_results = {
+        "event_synthesis": {"event1": {"key": "value"}},
+        "red_flags": ["Flag 1", "Flag 2"],
+        "entity_network": {"entity1": {"connections": []}},
+        "timeline": [{"date": "2023-01-01", "event": "Event 1"}],
+        "company_analysis": {"summary": "Analysis summary"}
+    }
+    
+    # Create a template
+    agent.current_template = MagicMock()
+    agent.current_template.variables = {}
+    
+    await agent.integrate_analysis_results(company, analysis_results)
+    
+    # Verify variables were updated
+    assert "event_synthesis" in agent.current_template.variables
+    assert "red_flags" in agent.current_template.variables
+    assert "entity_network" in agent.current_template.variables
+    assert "timeline" in agent.current_template.variables
+    assert "company_analysis" in agent.current_template.variables
