@@ -16,6 +16,30 @@ MULTIPLIER = 1
 MIN_WAIT = 2
 MAX_WAIT = 10
 
+class NSEError(Exception):
+    """Base class for NSE-related errors."""
+    pass
+
+
+class NSEConnectionError(NSEError):
+    """Error when connecting to NSE API."""
+    pass
+
+
+class NSERateLimitError(NSEError):
+    """Error when NSE API rate limit is exceeded."""
+    pass
+
+
+class NSEAuthenticationError(NSEError):
+    """Error when authentication with NSE API fails."""
+    pass
+
+
+class NSEDataError(NSEError):
+    """Error when parsing NSE data."""
+    pass
+
 class NSEToolConfig(BaseModel):
     base_url: str = "https://www.nseindia.com"
     refresh_interval: int = 25

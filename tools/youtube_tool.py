@@ -55,7 +55,7 @@ class YoutubeTool(BaseTool):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = get_logger(self.name)
-        self.config = YoutubeToolConfig(**config.get("youtube", {}))
+        self.config = YoutubeToolConfig(**config)
         
 
         self.youtube = googleapiclient.discovery.build(

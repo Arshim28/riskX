@@ -15,7 +15,13 @@ from agents.youtube_agent import (
 @pytest.fixture
 def config():
     return {
-        "youtube": {"api_key": "test_key"},
+        "youtube": {
+            "youtube_api_key": "YOUTUBE_API_KEY_PLACEHOLDER",
+            "retry_limit": 1,  # Low values for testing
+            "multiplier": 0,
+            "min_wait": 0,
+            "max_wait": 0
+        },
         "models": {
             "analysis": "gemini-2.0-pro",
             "summary": "gemini-2.0-pro"

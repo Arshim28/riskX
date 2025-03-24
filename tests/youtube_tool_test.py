@@ -206,13 +206,11 @@ async def youtube_tool(mock_logger, mock_youtube_client):
     
     # Use a placeholder API key for testing
     config = {
-        "youtube": {
-            "youtube_api_key": "YOUTUBE_API_KEY_PLACEHOLDER",
-            "retry_limit": 1,  # Low values for testing
-            "multiplier": 0,
-            "min_wait": 0,
-            "max_wait": 0
-        }
+        "youtube_api_key": "YOUTUBE_API_KEY_PLACEHOLDER",
+        "retry_limit": 1,  # Low values for testing
+        "multiplier": 0,
+        "min_wait": 0,
+        "max_wait": 0
     }
     
     # Create a direct mock for the transcriptor get_transcript method
