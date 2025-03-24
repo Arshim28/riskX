@@ -1,0 +1,27 @@
+# Default stream configuration for corporate agent
+Announcements:
+  active: true
+  input_params:
+    from_date: ""
+    to_date: ""
+AnnXBRL:
+  active: true
+  input_params:
+    from_date: ""
+    to_date: ""
+AnnualReports:
+  active: true
+  input_params: {}
+BussinessSustainabilitiyReport:
+  active: true
+  input_params: {}
+BoardMeetings:
+  active: true
+  input_params:
+    from_date: ""
+    to_date: ""
+CorporateActions:
+  active: true
+  input_params:
+    from_date: ""
+    to_date: ""

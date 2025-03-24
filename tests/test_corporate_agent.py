@@ -1,11 +1,13 @@
+# tests/test_corporate_agent.py
 import pytest
 import asyncio
 import json
-from unittest.mock import patch, MagicMock, AsyncMock
+import os
+import yaml
+from unittest.mock import patch, MagicMock, AsyncMock, mock_open
 from base.base_agents import AgentState
 
-from agents.corporate_agent import CorporateAgent
-from utils.llm_provider import get_llm_provider
+from agents.corporate_agent import CorporateAgent, CorporateGovernanceError
 
 
 @pytest.fixture
@@ -17,6 +19,12 @@ def config():
             "lookup": "gemini-2.0-flash",
             "analysis": "gemini-2.0-pro",
             "report": "gemini-2.0-pro"
+        },
+        "retry": {
+            "max_attempts": 2,
+            "multiplier": 0,
+            "min_wait": 0,
+            "max_wait": 0
         }
     }
 
@@ -30,125 +38,86 @@ def state():
 
 
 @pytest.fixture
-def company_info():
+def governance_data():
     return {
-        "name": "Test Company",
-        "industry": "Technology",
-        "founded": 2010,
-        "headquarters": "San Francisco, CA",
-        "ceo": "John Doe",
-        "market_cap": "10B"
-    }
-
-
-@pytest.fixture
-def financial_analysis():
-    return {
-        "financial_health": "Strong",
-        "growth_trend": "Positive",
-        "red_flags": ["Q2 profit margin declined slightly"],
-        "key_metrics": {"profit_margin": "10%"},
-        "risk_level": "Low",
-        "recommendation": "Monitor Q3 performance"
-    }
-
-
-@pytest.fixture
-def regulatory_filings():
-    return [
-        {
-            "date": "2023-12-01",
-            "type": "Annual Report",
-            "summary": "Filed annual report with SEC",
-            "url": "https://example.com/filing1"
-        },
-        {
-            "date": "2023-09-15",
-            "type": "Quarterly Report",
-            "summary": "Filed Q3 results with SEC",
-            "url": "https://example.com/filing2"
+        "TEST": {
+            "board_of_directors": [
+                {
+                    "director_name": "John Doe",
+                    "din": "12345678",
+                    "designation": "Chairperson",
+                    "tenure": "5",
+                    "membership": ["Audit Committee"]
+                },
+                {
+                    "director_name": "Jane Smith",
+                    "din": "87654321",
+                    "designation": "Independent Director",
+                    "tenure": "3",
+                    "membership": ["Nomination & Remuneration Committee"]
+                }
+            ],
+            "communities": {
+                "Audit Committee": [
+                    {
+                        "name": "John Doe",
+                        "designation": "Independent Director",
+                        "community_designation": "Chairperson"
+                    }
+                ],
+                "Nomination & Remuneration Committee": [
+                    {
+                        "name": "Jane Smith",
+                        "designation": "Independent Director",
+                        "community_designation": "Member"
+                    }
+                ]
+            }
         }
-    ]
-
-
-@pytest.fixture
-def regulatory_analysis():
-    return {
-        "compliance": "Good",
-        "pending_issues": "None",
-        "historical_violations": 0,
-        "recent_changes": "N/A",
-        "red_flags": ["Minor delay in Q2 filing"],
-        "risk_assessment": "Low"
     }
 
 
 @pytest.fixture
-def management_info():
-    return [
-        {
-            "name": "John Doe",
-            "position": "CEO",
-            "tenure": "5 years",
-            "background": "Previously CEO at Tech Corp"
+def stream_config():
+    return {
+        "Announcements": {
+            "active": True,
+            "input_params": {"from_date": "01-01-2023", "to_date": "31-12-2023"}
         },
-        {
-            "name": "Jane Smith",
-            "position": "CFO",
-            "tenure": "3 years",
-            "background": "Previously CFO at Finance Inc"
+        "BoardMeetings": {
+            "active": True,
+            "input_params": {"from_date": "01-01-2023", "to_date": "31-12-2023"}
         }
-    ]
-
-
-@pytest.fixture
-def management_analysis():
-    return {
-        "leadership_stability": "High",
-        "experience_level": "Very Experienced",
-        "succession_planning": "Formal plan in place",
-        "red_flags": ["CEO sold shares in Q2"],
-        "risk_assessment": "Low"
     }
 
 
 @pytest.fixture
-def market_data():
+def default_stream_config():
     return {
-        "price_data": [
-            {"date": "2023-12-01", "price": 100.0},
-            {"date": "2023-12-02", "price": 102.5},
-            {"date": "2023-12-03", "price": 101.0}
+        "Announcements": {
+            "active": True,
+            "input_params": {"from_date": "", "to_date": ""}
+        },
+        "BoardMeetings": {
+            "active": True,
+            "input_params": {"from_date": "", "to_date": ""}
+        },
+        "CorporateActions": {
+            "active": True,
+            "input_params": {}
+        }
+    }
+
+
+@pytest.fixture
+def nse_result_data():
+    return {
+        "Announcements": [
+            {"desc": "Financial Results", "attchmntFile": "results.pdf", "attchmntText": "Q2 Results", "exchdisstime": "01-01-2023 10:00:00"}
         ],
-        "unusual_patterns": [
-            {"date": "2023-12-02", "pattern": "Sudden spike", "significance": "Medium"}
+        "BoardMeetings": [
+            {"bm_date": "15-01-2023", "bm_purpose": "TEST", "bm_desc": "Quarterly Meeting", "attachment": "agenda.pdf"}
         ]
-    }
-
-
-@pytest.fixture
-def market_analysis():
-    return {
-        "stock_performance": "Above average",
-        "volatility": "Low",
-        "correlation_to_sector": "High",
-        "momentum": "Positive",
-        "red_flags": ["Unusual volume on Dec 2nd"],
-        "risk_assessment": "Low to Medium"
-    }
-
-
-@pytest.fixture
-def corporate_report():
-    return {
-        "executive_summary": "Overall strong company with minor concerns",
-        "financial_health": "Strong",
-        "regulatory_status": "Compliant",
-        "management_assessment": "Experienced team",
-        "market_performance": "Above average",
-        "risk_factors": ["Minor delays in filings", "CEO stock sales"],
-        "conclusion": "Low risk profile with positive outlook",
-        "recommendation": "Continue monitoring"
     }
 
 
@@ -156,16 +125,14 @@ def corporate_report():
 def agent(config):
     # Create proper tool mocks
     postgres_mock = MagicMock()
-    nse_mock = MagicMock()
+    postgres_mock.run = AsyncMock()
     
-    # Create LLM provider mock
-    llm_provider_instance = MagicMock()
-    llm_provider_instance.generate_text = AsyncMock()
-    llm_provider_mock = AsyncMock(return_value=llm_provider_instance)
+    nse_mock = MagicMock()
+    nse_mock.run = AsyncMock()
     
     # Create prompt manager mock
     prompt_manager_mock = MagicMock()
-    prompt_manager_mock.get_prompt = MagicMock(return_value=("System prompt", "Human prompt"))
+    prompt_manager_mock.get_prompt = MagicMock()
     
     # Create logger mock
     logger_mock = MagicMock()
@@ -174,8 +141,7 @@ def agent(config):
     with patch("utils.prompt_manager.get_prompt_manager", return_value=prompt_manager_mock), \
          patch("utils.logging.get_logger", return_value=logger_mock), \
          patch("tools.postgres_tool.PostgresTool", return_value=postgres_mock), \
-         patch("tools.nse_tool.NSETool", return_value=nse_mock), \
-         patch("utils.llm_provider.get_llm_provider", llm_provider_mock):
+         patch("tools.nse_tool.NSETool", return_value=nse_mock):
         
         agent = CorporateAgent(config)
         
@@ -184,340 +150,310 @@ def agent(config):
         metrics_mock.execution_time_ms = 100.0
         agent.metrics = metrics_mock
         
-        # Add method to agent to get the mocked LLM provider
-        agent.get_llm_provider = llm_provider_mock
-        
         return agent
 
 
 @pytest.mark.asyncio
-async def test_fetch_company_info(agent, company_info):
-    # Create a new mock for the postgres tool
-    postgres_mock = MagicMock()
-    postgres_mock.run = AsyncMock()
+async def test_get_company_symbol_from_config(agent):
+    """Test getting company symbol from NSE tool config"""
+    # Mock the NSE tool config
+    agent.nse_tool.config = MagicMock()
+    agent.nse_tool.config.symbol = "TEST"
     
-    # Replace agent's postgres_tool with our mock
-    agent.postgres_tool = postgres_mock
+    symbol = await agent.get_company_symbol("Test Company")
     
-    # Test database hit
-    db_result = MagicMock()
-    db_result.success = True
-    db_result.data = [company_info]
-    postgres_mock.run.return_value = db_result
-    
-    result = await agent.fetch_company_info("Test Company")
-    
-    assert result == company_info
-    assert agent.company_data == result
-    
-    postgres_mock.run.assert_called_once()
-    
-    # Reset for next test
-    postgres_mock.run.reset_mock()
-    
-    # Test database miss, LLM generation
-    db_result = MagicMock()
-    db_result.success = False
-    db_result.data = None
-    postgres_mock.run.return_value = db_result
-    
-    # Set up LLM response
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(company_info)
-    
-    result = await agent.fetch_company_info("Test Company")
-    
-    assert result == company_info
-    assert agent.company_data == result
-    
-    assert postgres_mock.run.call_count == 2  # First to check, second to save
-    llm_provider.generate_text.assert_called_once()
+    assert symbol == "TEST"
+    # Verify postgres_tool.run was not called
+    assert not agent.postgres_tool.run.called
 
 
 @pytest.mark.asyncio
-async def test_analyze_financial_statements(agent, financial_analysis):
-    # Create a new mock for the nse tool
-    nse_mock = MagicMock()
-    nse_mock.run = AsyncMock()
+async def test_get_company_symbol_from_db(agent):
+    """Test getting company symbol from database"""
+    # Replace config with one that doesn't have symbol
+    agent.nse_tool.config = MagicMock()
+    agent.nse_tool.config.symbol = None
     
-    # Replace agent's nse_tool with our mock
-    agent.nse_tool = nse_mock
-    
-    # Set up mock response
-    nse_result = MagicMock()
-    nse_result.success = True
-    nse_result.data = {
-        "quarters": [
-            {"quarter": "Q1", "revenue": 1000, "profit": 100},
-            {"quarter": "Q2", "revenue": 1100, "profit": 110}
-        ]
-    }
-    nse_mock.run.return_value = nse_result
-    
-    # Get the LLM provider mock
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(financial_analysis)
-    
-    result = await agent.analyze_financial_statements("Test Company")
-    
-    assert result == financial_analysis
-    assert agent.financial_data["raw_data"] == nse_result.data
-    assert agent.financial_data["analysis"] == result
-    
-    nse_mock.run.assert_called_once()
-    llm_provider.generate_text.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_check_regulatory_filings(agent, regulatory_filings, regulatory_analysis):
-    # Create new mocks for both tools
-    postgres_mock = MagicMock()
-    postgres_mock.run = AsyncMock()
-    
-    nse_mock = MagicMock()
-    nse_mock.run = AsyncMock()
-    
-    # Replace agent's tools with our mocks
-    agent.postgres_tool = postgres_mock
-    agent.nse_tool = nse_mock
-    
-    # Test with existing filings in database
+    # Mock database response
     db_result = MagicMock()
     db_result.success = True
-    db_result.data = regulatory_filings
-    postgres_mock.run.return_value = db_result
+    db_result.data = [{"symbol": "TEST"}]
+    agent.postgres_tool.run.return_value = db_result
     
-    # Get the LLM provider mock
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(regulatory_analysis)
+    symbol = await agent.get_company_symbol("Test Company")
     
-    result = await agent.check_regulatory_filings("Test Company")
-    
-    assert result == regulatory_analysis
-    assert agent.regulatory_data["filings"] == regulatory_filings
-    assert agent.regulatory_data["analysis"] == result
-    
-    postgres_mock.run.assert_called_once()
-    llm_provider.generate_text.assert_called_once()
-    
-    # Reset mocks
-    postgres_mock.run.reset_mock()
-    llm_provider.generate_text.reset_mock()
-    
-    # Test with fetching from NSE (fewer than 5 filings in DB)
-    db_result.data = regulatory_filings[:1]  # Only one filing in DB
-    postgres_mock.run.return_value = db_result
-    
-    nse_result = MagicMock()
-    nse_result.success = True
-    nse_result.data = regulatory_filings
-    nse_mock.run.return_value = nse_result
-    
-    result = await agent.check_regulatory_filings("Test Company")
-    
-    assert result == regulatory_analysis
-    assert agent.regulatory_data["filings"] == regulatory_filings
-    assert agent.regulatory_data["analysis"] == result
-    
-    postgres_mock.run.assert_called()
-    nse_mock.run.assert_called_once()
-    llm_provider.generate_text.assert_called_once()
+    assert symbol == "TEST"
+    agent.postgres_tool.run.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_analyze_management_team(agent, management_info, management_analysis):
-    # Create a new mock for the postgres tool
-    postgres_mock = MagicMock()
-    postgres_mock.run = AsyncMock()
+async def test_get_company_symbol_fallback(agent):
+    """Test fallback when symbol not found"""
+    # Replace config with one that doesn't have symbol
+    agent.nse_tool.config = MagicMock()
+    agent.nse_tool.config.symbol = None
     
-    # Replace agent's postgres_tool with our mock
-    agent.postgres_tool = postgres_mock
-    
-    # Test with existing management info in database
+    # Mock database with no results
     db_result = MagicMock()
     db_result.success = True
-    db_result.data = management_info
-    postgres_mock.run.return_value = db_result
+    db_result.data = []
+    agent.postgres_tool.run.return_value = db_result
     
-    # Get the LLM provider mock
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(management_analysis)
+    symbol = await agent.get_company_symbol("Test Company")
     
-    result = await agent.analyze_management_team("Test Company")
-    
-    assert result == management_analysis
-    assert agent.management_data["management"] == management_info
-    assert agent.management_data["analysis"] == result
-    
-    postgres_mock.run.assert_called_once()
-    llm_provider.generate_text.assert_called_once()
-    
-    # Reset mocks
-    postgres_mock.run.reset_mock()
-    llm_provider.generate_text.reset_mock()
-    
-    # Test with no management info in database
-    db_result.success = True
-    db_result.data = None
-    postgres_mock.run.return_value = db_result
-    
-    llm_provider.generate_text.side_effect = [
-        json.dumps(management_info),  # First call returns management info
-        json.dumps(management_analysis)  # Second call returns analysis
-    ]
-    
-    result = await agent.analyze_management_team("Test Company")
-    
-    assert result == management_analysis
-    assert agent.management_data["management"] == management_info
-    assert agent.management_data["analysis"] == result
-    
-    assert postgres_mock.run.call_count >= 2  # First to check, then to save
-    assert llm_provider.generate_text.call_count == 2
+    assert symbol == "Test Company"  # Fallback to company name
+    agent.postgres_tool.run.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_analyze_market_data(agent, market_data, market_analysis):
-    # Create a new mock for the nse tool
-    nse_mock = MagicMock()
-    nse_mock.run = AsyncMock()
-    
-    # Replace agent's nse_tool with our mock
-    agent.nse_tool = nse_mock
-    
-    # Mock price result
-    price_result = MagicMock()
-    price_result.success = True
-    price_result.data = market_data["price_data"]
-    
-    # Mock pattern result
-    pattern_result = MagicMock()
-    pattern_result.success = True
-    pattern_result.data = market_data["unusual_patterns"]
-    
-    # Configure NSE tool to return different results based on command
-    def mock_nse_run(command, **kwargs):
-        if command == "get_stock_price_history":
-            return price_result
-        elif command == "detect_unusual_patterns":
-            return pattern_result
-        return MagicMock(success=False)
+async def test_get_corporate_governance_data(agent, governance_data):
+    """Test getting corporate governance data from file"""
+    # Mock open and json.load
+    with patch("builtins.open", mock_open()), \
+         patch("os.path.exists", return_value=True), \
+         patch("json.load", return_value=governance_data):
         
-    nse_mock.run.side_effect = mock_nse_run
+        result = await agent.get_corporate_governance_data("TEST")
+        
+        assert result == governance_data["TEST"]
+
+
+@pytest.mark.asyncio
+async def test_get_corporate_governance_data_not_found(agent):
+    """Test governance data not found for symbol"""
+    # Mock open and json.load
+    with patch("builtins.open", mock_open()), \
+         patch("os.path.exists", return_value=True), \
+         patch("json.load", return_value={"OTHER": {}}):
+        
+        result = await agent.get_corporate_governance_data("TEST")
+        
+        assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_get_corporate_governance_data_file_not_found(agent):
+    """Test governance data file not found"""
+    with patch("os.path.exists", return_value=False):
+        with pytest.raises(CorporateGovernanceError):
+            result = await agent.get_corporate_governance_data("TEST")
+
+
+@pytest.mark.asyncio
+async def test_collect_corporate_data_success(agent, nse_result_data, governance_data, stream_config):
+    """Test successful corporate data collection"""
+    # Mock get_company_symbol
+    agent.get_company_symbol = AsyncMock(return_value="TEST")
     
-    # Get the LLM provider mock
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(market_analysis)
+    # Mock get_corporate_governance_data
+    agent.get_corporate_governance_data = AsyncMock(return_value=governance_data["TEST"])
     
-    result = await agent.analyze_market_data("Test Company")
+    # Mock NSE tool response
+    nse_result = MagicMock()
+    nse_result.success = True
+    nse_result.data = nse_result_data
+    agent.nse_tool.run.return_value = nse_result
     
-    assert result == market_analysis
-    assert agent.market_data["price_data"] == market_data["price_data"]
-    assert agent.market_data["unusual_patterns"] == market_data["unusual_patterns"]
-    assert agent.market_data["analysis"] == result
+    result = await agent.collect_corporate_data("Test Company", stream_config)
     
-    assert nse_mock.run.call_count == 2  # Called for price data and patterns
-    llm_provider.generate_text.assert_called_once()
+    assert result["success"] is True
+    assert result["company"] == "Test Company"
+    assert result["symbol"] == "TEST"
+    assert result["governance"] == governance_data["TEST"]
+    assert result["data"] == nse_result_data
+    assert "timestamp" in result
+    assert "summary" in result
+    assert result["summary"]["total_streams"] == 2
+    assert result["summary"]["stream_counts"]["Announcements"] == 1
+    assert result["summary"]["stream_counts"]["BoardMeetings"] == 1
+
+
+@pytest.mark.asyncio
+async def test_collect_corporate_data_nse_failure(agent, stream_config):
+    """Test handling NSE tool failure"""
+    # Mock get_company_symbol
+    agent.get_company_symbol = AsyncMock(return_value="TEST")
     
-    # Test error handling
-    nse_mock.run.reset_mock()
-    llm_provider.generate_text.reset_mock()
+    # Mock get_corporate_governance_data
+    agent.get_corporate_governance_data = AsyncMock(return_value={})
     
-    price_result.success = False
-    price_result.error = "Connection error"
+    # Mock NSE tool failure
+    nse_result = MagicMock()
+    nse_result.success = False
+    nse_result.error = "NSE API Error"
+    agent.nse_tool.run.return_value = nse_result
     
-    result = await agent.analyze_market_data("Test Company")
+    result = await agent.collect_corporate_data("Test Company", stream_config)
     
+    assert result["success"] is False
     assert "error" in result
-    assert "Failed to fetch market data" in result["error"]
-    
-    nse_mock.run.assert_called_once()
-    llm_provider.generate_text.assert_not_called()
+    assert "NSE API Error" in result["error"]
+    assert result["company"] == "Test Company"
+    assert result["symbol"] == "TEST"
+    assert "governance" in result
+    assert "timestamp" in result
 
 
 @pytest.mark.asyncio
-async def test_generate_corporate_report(agent, corporate_report):
-    # Create a new mock for the postgres tool
-    postgres_mock = MagicMock()
-    postgres_mock.run = AsyncMock()
-    
-    # Replace agent's postgres_tool with our mock
-    agent.postgres_tool = postgres_mock
-    
-    # Set up agent data
-    agent.company_data = {"name": "Test Company"}
-    agent.financial_data = {"analysis": {"financial_health": "Strong"}}
-    agent.regulatory_data = {"analysis": {"compliance": "Good"}}
-    agent.management_data = {"analysis": {"leadership_stability": "High"}}
-    agent.market_data = {"analysis": {"stock_performance": "Above average"}}
-    
-    # Get the LLM provider mock
-    llm_provider = await agent.get_llm_provider()
-    llm_provider.generate_text.return_value = json.dumps(corporate_report)
-    
-    postgres_mock.run.return_value = MagicMock(success=True)
-    
-    result = await agent.generate_corporate_report("Test Company")
-    
-    assert result == corporate_report
-    
-    llm_provider.generate_text.assert_called_once()
-    postgres_mock.run.assert_called_once()  # To save the report
-    
-    # Input to LLM should include all analysis data
-    args, kwargs = llm_provider.generate_text.call_args
-    assert "financial_health" in str(args)
-    assert "compliance" in str(args)
-    assert "leadership_stability" in str(args)
-    assert "stock_performance" in str(args)
+async def test_get_default_stream_config(agent, default_stream_config):
+    """Test loading default stream config"""
+    with patch("os.path.exists", return_value=True), \
+         patch("builtins.open", mock_open()), \
+         patch("yaml.safe_load", return_value=default_stream_config):
+        
+        result = agent._get_default_stream_config()
+        
+        assert result == default_stream_config
+        # Check that date parameters were updated for streams that need them
+        for stream, config in result.items():
+            if 'input_params' in config and config['input_params'] and any(param in config['input_params'] for param in ['from_date', 'to_date']):
+                assert config['input_params'] == agent.default_date_params
 
 
 @pytest.mark.asyncio
-async def test_run(agent, state, company_info, financial_analysis, regulatory_analysis, 
-                  management_analysis, market_analysis, corporate_report):
-    # Create method mocks
-    agent.fetch_company_info = AsyncMock(return_value=company_info)
-    agent.analyze_financial_statements = AsyncMock(return_value=financial_analysis)
-    agent.check_regulatory_filings = AsyncMock(return_value=regulatory_analysis)
-    agent.analyze_management_team = AsyncMock(return_value=management_analysis)
-    agent.analyze_market_data = AsyncMock(return_value=market_analysis)
-    agent.generate_corporate_report = AsyncMock(return_value=corporate_report)
+async def test_get_default_stream_config_file_not_found(agent):
+    """Test handling config file not found"""
+    with patch("os.path.exists", return_value=False):
+        result = agent._get_default_stream_config()
+        assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_run_success(agent, state, nse_result_data, governance_data, stream_config):
+    """Test successful run method"""
+    # Mock agent methods
+    agent._get_default_stream_config = MagicMock(return_value=stream_config)
+    agent.collect_corporate_data = AsyncMock(return_value={
+        "success": True,
+        "company": "Test Company",
+        "symbol": "TEST",
+        "timestamp": "2023-01-01T00:00:00",
+        "governance": governance_data["TEST"],
+        "data": nse_result_data,
+        "summary": {
+            "total_streams": 2,
+            "stream_counts": {"Announcements": 1, "BoardMeetings": 1}
+        }
+    })
     agent._log_start = MagicMock()
     agent._log_completion = MagicMock()
+    
+    # Create NSE tool config
+    agent.nse_tool.config = MagicMock()
     
     result = await agent.run(state)
     
     assert result["goto"] == "meta_agent"
     assert result["corporate_status"] == "DONE"
     assert "corporate_results" in result
-    assert result["corporate_results"]["company_info"] == company_info
-    assert result["corporate_results"]["financial_analysis"] == financial_analysis
-    assert result["corporate_results"]["regulatory_analysis"] == regulatory_analysis
-    assert result["corporate_results"]["management_analysis"] == management_analysis
-    assert result["corporate_results"]["market_analysis"] == market_analysis
-    assert result["corporate_results"]["corporate_report"] == corporate_report
-    assert len(result["corporate_results"]["red_flags"]) > 0
+    assert result["corporate_results"]["success"] is True
+    assert result["corporate_results"]["company"] == "Test Company"
     
-    # Verify all methods were called
-    agent.fetch_company_info.assert_called_once()
-    agent.analyze_financial_statements.assert_called_once()
-    agent.check_regulatory_filings.assert_called_once()
-    agent.analyze_management_team.assert_called_once()
-    agent.analyze_market_data.assert_called_once()
-    agent.generate_corporate_report.assert_called_once()
+    # Verify config was updated
+    assert agent.nse_tool.config.company == "Test Company"
+
+
+@pytest.mark.asyncio
+async def test_run_with_symbol_in_state(agent, state):
+    """Test run with symbol provided in state"""
+    # Add symbol to state
+    state["symbol"] = "TEST"
     
-    # Test synchronous pipeline behavior
+    # Mock agent methods
+    agent._get_default_stream_config = MagicMock(return_value={})
+    agent.collect_corporate_data = AsyncMock(return_value={"success": True})
+    agent._log_start = MagicMock()
+    agent._log_completion = MagicMock()
+    
+    # Create NSE tool config
+    agent.nse_tool.config = MagicMock()
+    
+    result = await agent.run(state)
+    
+    # Verify symbol was set in config
+    assert agent.nse_tool.config.company == "Test Company"
+    assert agent.nse_tool.config.symbol == "TEST"
+
+
+@pytest.mark.asyncio
+async def test_run_missing_company(agent):
+    """Test run with missing company name"""
+    state = {"industry": "Technology"}  # No company name
+    
+    result = await agent.run(state)
+    
+    assert result["goto"] == "meta_agent"
+    assert result["corporate_status"] == "ERROR"
+    assert "error" in result
+    assert "Company name is missing" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_run_collect_data_failure(agent, state):
+    """Test run with failure in collect_corporate_data"""
+    # Mock agent methods
+    agent._get_default_stream_config = MagicMock(return_value={})
+    agent.collect_corporate_data = AsyncMock(return_value={
+        "success": False,
+        "error": "Failed to collect data",
+        "company": "Test Company",
+        "timestamp": "2023-01-01T00:00:00"
+    })
+    agent._log_start = MagicMock()
+    agent._log_completion = MagicMock()
+    
+    # Create NSE tool config
+    agent.nse_tool.config = MagicMock()
+    
+    result = await agent.run(state)
+    
+    assert result["goto"] == "meta_agent"
+    assert result["corporate_status"] == "ERROR"
+    assert "error" in result
+    assert "Failed to collect data" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_run_synchronous_pipeline(agent, state):
+    """Test run in synchronous pipeline mode"""
+    # Set synchronous pipeline flag and next agent
     state["synchronous_pipeline"] = True
     state["next_agent"] = "next_test_agent"
+    
+    # Mock agent methods
+    agent._get_default_stream_config = MagicMock(return_value={})
+    agent.collect_corporate_data = AsyncMock(return_value={"success": True})
+    agent._log_start = MagicMock()
+    agent._log_completion = MagicMock()
+    
+    # Create NSE tool config
+    agent.nse_tool.config = MagicMock()
     
     result = await agent.run(state)
     
     assert result["goto"] == "next_test_agent"
+    assert result["corporate_status"] == "DONE"
+
+
+@pytest.mark.asyncio
+async def test_run_unhandled_error(agent, state):
+    """Test handling of unhandled exceptions"""
+    # Force an error in the run method
+    agent._log_start = MagicMock(side_effect=Exception("Unexpected error"))
+    
+    result = await agent.run(state)
+    
+    assert result["goto"] == "meta_agent"
+    assert result["corporate_status"] == "ERROR"
+    assert "error" in result
+    assert "Unexpected error" in result["error"]
 
 
 @pytest.mark.asyncio
 async def test_execute_method(agent, state):
-    # Create an AgentState object from the state dict
+    """Test the _execute method"""
+    # Create an AgentState object
+    from base.base_agents import AgentState
     agent_state = AgentState(**state)
     
     # Mock the run method
@@ -528,32 +464,9 @@ async def test_execute_method(agent, state):
     
     # Verify result
     assert result["result"] == "success"
-    assert agent.run.called
+    agent.run.assert_called_once()
     
     # Verify run was called with the correct state
     args, kwargs = agent.run.call_args
     assert args[0]["company"] == state["company"]
     assert args[0]["industry"] == state["industry"]
-
-
-@pytest.mark.asyncio
-async def test_error_handling(agent, state):
-    # Test missing company name
-    state_without_company = state.copy()
-    state_without_company.pop("company")
-    
-    result = await agent.run(state_without_company)
-    
-    assert result["goto"] == "meta_agent"
-    assert result["corporate_status"] == "ERROR"
-    assert "error" in result
-    
-    # Test exception in a method
-    agent.fetch_company_info = AsyncMock(side_effect=Exception("Test error"))
-    
-    result = await agent.run(state)
-    
-    assert result["goto"] == "meta_agent"
-    assert result["corporate_status"] == "ERROR"
-    assert "error" in result
-    assert "Test error" in result["error"]
