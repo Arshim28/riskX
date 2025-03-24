@@ -394,8 +394,13 @@ class OCRVectorStoreTool(BaseTool):
             self.logger.error(f"Error answering question: {str(e)}")
             return {"success": False, "error": f"Error answering question: {str(e)}"}
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def run(self, command: str, **kwargs) -> ToolResult[Dict[str, Any]]:
+    async def _execute(self, **kwargs) -> ToolResult:
+        """Implement abstract method from BaseTool"""
+        command = kwargs.get("command", "")
+        
+        if not command:
+            return ToolResult(success=False, error="Command is required")
+        
         try:
             self.logger.info(f"Running OCR vector store command: {command}")
             
@@ -547,3 +552,8 @@ class OCRVectorStoreTool(BaseTool):
         except Exception as e:
             self.logger.error(f"OCR vector store error: {str(e)}")
             return await self._handle_error(e)
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def run(self, command: str, **kwargs) -> ToolResult[Dict[str, Any]]:
+        """Main method to run commands on this tool, delegates to _execute"""
+        return await super().run(command=command, **kwargs)
