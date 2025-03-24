@@ -104,6 +104,9 @@ class ContentParserTool(BaseTool):
         self.logger.error(f"All extraction methods failed for: {url}")
         return None, metadata
     
+    async def _execute(self, url: str, **kwargs) -> ToolResult[Dict[str, Any]]:
+        return await self.run(url, **kwargs)
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def run(self, url: str, **kwargs) -> ToolResult[Dict[str, Any]]:
         try:
