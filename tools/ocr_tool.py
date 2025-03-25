@@ -283,4 +283,8 @@ class OcrTool(BaseTool):
             return ToolResult(success=True, data=result)
         except Exception as e:
             self.logger.error(f"OCR processing error: {str(e)}")
-            return await self._handle_error(e)
+            error_message = str(e)
+            return ToolResult(success=False, error=error_message)
+    
+    async def _execute(self, **kwargs) -> ToolResult:
+        return await self.run(**kwargs)

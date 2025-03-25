@@ -23,6 +23,13 @@ embedding:
   retry_base_delay: 1
   max_tokens: 8000
 
+youtube:
+  youtube_api_key: "AIzaSyB5x0F4nohY7KIH-2JKiaFKnNyMRMrzIVQ"
+
+nse:
+  company: "Bajaj"
+  symbol: "BAJAJFINSV"
+
 vector_store:
   index_type: "Flat"  
   metric: "cosine"    

@@ -1,6 +1,8 @@
 import os
 import json
+import yaml
 import asyncio
+import concurrent.futures
 from typing import Dict, List, Any, Tuple, Optional, Union, Annotated, TypedDict, Literal, Set, Callable, Type
 from datetime import datetime
 import traceback
@@ -608,9 +610,8 @@ class EnhancedForensicWorkflow(BaseGraph):
         # Final meta_agent node connects to END
         workflow.add_edge("meta_agent_final", END)
         
-        # Compile graph
-        memory_saver = MemorySaver()
-        return workflow.compile(checkpointer=memory_saver)
+        # Compile graph without a checkpointer to avoid issues with async execution
+        return workflow.compile()
     
     def create_agent_node(self, agent, agent_name: str):
         """Create a function that runs an agent and handles async execution."""
@@ -642,18 +643,35 @@ class EnhancedForensicWorkflow(BaseGraph):
         
         def run_agent_sync(state: WorkflowState) -> WorkflowState:
             """Synchronous wrapper for the async agent execution."""
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Create a new loop if current one is already running
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
+            # Check if we're already in an async context - if so, this needs special handling
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                # We're in an async context, so we can't run_until_complete
+                # Instead, create a synchronous Future and return its result
+                loop = asyncio.get_event_loop()
+                future = asyncio.run_coroutine_threadsafe(run_agent(state), loop)
+                # Wait for the result with a timeout
                 try:
-                    return new_loop.run_until_complete(run_agent(state))
-                finally:
-                    new_loop.close()
-                    asyncio.set_event_loop(loop)
-            else:
-                return loop.run_until_complete(run_agent(state))
+                    return future.result(timeout=600)  # 10 minute timeout
+                except concurrent.futures.TimeoutError:
+                    self.logger.error(f"Timeout running {agent_name}")
+                    return {
+                        **state,
+                        "goto": "meta_agent",
+                        "error": f"Timeout in {agent_name}",
+                        agent_status_field: "ERROR"
+                    }
+            
+            # Standard synchronous execution path
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # No event loop in this thread, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run the coroutine on the event loop
+            return loop.run_until_complete(run_agent(state))
                 
         return run_agent_sync
     
@@ -800,22 +818,30 @@ class EnhancedForensicWorkflow(BaseGraph):
     
     def run_sync(self, initial_state: Dict[str, Any]) -> Dict[str, Any]:
         """Synchronous wrapper for running the workflow."""
-        loop = asyncio.get_event_loop()
+        # In an async context, just return the coroutine to be awaited by the caller
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            return self.run(initial_state)
+            
+        # In a synchronous context, run with event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in this thread, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        # Check if loop is running
         if loop.is_running():
-            # Create a new loop if current one is already running
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            try:
-                return new_loop.run_until_complete(self.run(initial_state))
-            finally:
-                new_loop.close()
-                asyncio.set_event_loop(loop)
+            # We're in a nested event loop scenario, just return the coroutine
+            return self.run(initial_state)
         else:
+            # We can safely run the event loop
             return loop.run_until_complete(self.run(initial_state))
 
 
 # Function to create and run the workflow from arguments
-def create_and_run_workflow(
+async def create_and_run_workflow(
     company: str,
     industry: Optional[str] = None,
     config_path: Optional[str] = None,
@@ -826,13 +852,30 @@ def create_and_run_workflow(
     config = {}
     if config_path and os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            config = json.load(f)
+            if config_path.endswith('.yaml') or config_path.endswith('.yml'):
+                config = yaml.safe_load(f)
+            else:
+                config = json.load(f)
             
     # Setup logging
     setup_logging("forensic_workflow", level=config.get("log_level", "INFO"))
     logger = get_logger("forensic_workflow")
     
     logger.info(f"Creating workflow for company: {company}")
+    
+    # Simplified analysis when RAG is disabled
+    if initial_state and initial_state.get("enable_rag") is False:
+        logger.info("RAG disabled - returning simplified analysis")
+        return {
+            "final_report": f"# Financial Analysis for {company}\n\n"
+                           f"This is a simplified analysis report for {company} in the {industry or 'unknown'} industry.\n\n"
+                           f"## Note\n\nThis is a basic report generated without using the full workflow.",
+            "top_events": [],
+            "analysis_results": {
+                "red_flags": [],
+                "forensic_insights": {}
+            }
+        }
     
     # Create workflow
     workflow = EnhancedForensicWorkflow(config)
@@ -853,9 +896,11 @@ def create_and_run_workflow(
         if "industry" not in initial_state and industry is not None:
             initial_state["industry"] = industry
     
-    # Run workflow
+    # Run workflow - use a coroutine-friendly approach
     logger.info(f"Running workflow for company: {company}")
-    result = workflow.run_sync(initial_state)
+    
+    # We're already in an async context, just await the run method
+    result = await workflow.run(initial_state)
     
     logger.info(f"Workflow completed for company: {company}")
     

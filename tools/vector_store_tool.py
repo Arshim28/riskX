@@ -889,4 +889,11 @@ class VectorStoreTool(BaseTool):
             except:
                 pass
                 
-            return await self._handle_error(e)
+            error_message = str(e)
+            return ToolResult(success=False, error=error_message)
+    
+    async def _execute(self, **kwargs) -> ToolResult:
+        command = kwargs.get("command")
+        if not command:
+            return ToolResult(success=False, error="Missing required parameter: command")
+        return await self.run(command, **kwargs)

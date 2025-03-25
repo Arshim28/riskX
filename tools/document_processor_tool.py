@@ -228,4 +228,11 @@ class DocumentProcessorTool(BaseTool):
             
         except Exception as e:
             self.logger.error(f"Document processing error: {str(e)}")
-            return await self._handle_error(e)
+            error_message = str(e)
+            return ToolResult(success=False, error=error_message)
+    
+    async def _execute(self, **kwargs) -> ToolResult:
+        pdf_path = kwargs.get("pdf_path")
+        if not pdf_path:
+            return ToolResult(success=False, error="Missing required parameter: pdf_path")
+        return await self.run(pdf_path, **kwargs)

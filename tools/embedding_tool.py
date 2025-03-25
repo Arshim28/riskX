@@ -424,4 +424,11 @@ class EmbeddingTool(BaseTool):
             return ToolResult(success=True, data=result_data)
         except Exception as e:
             self.logger.error(f"Embedding error: {str(e)}")
-            return await self._handle_error(e)
+            error_message = str(e)
+            return ToolResult(success=False, error=error_message)
+    
+    async def _execute(self, **kwargs) -> ToolResult:
+        texts = kwargs.get("texts")
+        if not texts:
+            return ToolResult(success=False, error="Missing required parameter: texts")
+        return await self.run(texts, **kwargs)

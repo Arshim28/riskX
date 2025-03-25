@@ -140,12 +140,18 @@ async def run_analyze(args):
     
     # Run the workflow
     try:
-        result = create_and_run_workflow(
+        coro = create_and_run_workflow(
             company=args.company,
             industry=args.industry,
             config_path=args.config,
             initial_state=initial_state
         )
+        
+        # Handle the coroutine appropriately
+        if asyncio.iscoroutine(coro):
+            result = await coro
+        else:
+            result = coro
         
         if result.get("error"):
             logger.error(f"Analysis failed: {result['error']}")
@@ -409,130 +415,141 @@ async def main():
         logger.error(f"Error initializing providers: {e}")
         return 1
     
-    # Add new functions for additional RAG commands
-async def run_rag_list(args):
-    """List documents in the RAG system."""
-    logger = get_logger("main")
-    logger.info(f"Listing documents in vector store: {args.vector_store}")
-    
-    # Create RAG agent
-    from agents.rag_agent import RAGAgent
-    rag_agent = RAGAgent({})
-    
-    # Initialize RAG agent with specified vector store
-    init_result = await rag_agent.run({
-        "command": "initialize",
-        "vector_store_dir": args.vector_store
-    })
-    
-    if not init_result.get("initialized", False):
-        logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
-        return 1
-    
-    # Get vector store info
-    info_result = await rag_agent.run({"command": "info"})
-    vector_store_info = info_result.get("vector_store_info", {})
-    
-    if not vector_store_info:
-        logger.error("Failed to get vector store information")
-        return 1
-    
-    # Print document information
-    print("\n" + "="*80)
-    print(f"DOCUMENTS IN VECTOR STORE: {args.vector_store}")
-    print("="*80)
-    
-    document_collection = vector_store_info.get("document_collection", {})
-    if not document_collection:
-        print("\nNo documents found in the vector store.")
-        return 0
-    
-    print(f"\nFound {len(document_collection)} document(s):\n")
-    
-    for doc_id, metadata in document_collection.items():
-        print(f"Document: {doc_id}")
-        print(f"  Path: {metadata.get('path', 'Unknown')}")
-        print(f"  Added: {metadata.get('added_at', 'Unknown')}")
-        print(f"  Size: {metadata.get('size_bytes', 0)} bytes")
-        print(f"  Topics: {', '.join(metadata.get('topics', ['unclassified']))}")
-        print()
-    
-    return 0
-
-async def run_rag_topics(args):
-    """List topics in the RAG system."""
-    logger = get_logger("main")
-    logger.info(f"Listing topics in vector store: {args.vector_store}")
-    
-    # Create RAG agent
-    from agents.rag_agent import RAGAgent
-    rag_agent = RAGAgent({})
-    
-    # Initialize RAG agent with specified vector store
-    init_result = await rag_agent.run({
-        "command": "initialize",
-        "vector_store_dir": args.vector_store
-    })
-    
-    if not init_result.get("initialized", False):
-        logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
-        return 1
-    
-    # List topics
-    topics_result = await rag_agent.run({"command": "list_topics"})
-    
-    if not topics_result.get("topics_result", {}).get("success", False):
-        logger.error("Failed to list topics")
-        return 1
-    
-    # Print topic information
-    print("\n" + "="*80)
-    print(f"TOPICS IN VECTOR STORE: {args.vector_store}")
-    print("="*80)
-    
-    topics = topics_result.get("topics_result", {}).get("topics", {})
-    if not topics:
-        print("\nNo topics found in the vector store.")
-        return 0
-    
-    print(f"\nFound {len(topics)} topic(s):\n")
-    
-    for topic_name, topic_data in topics.items():
-        print(f"Topic: {topic_name}")
-        print(f"  Documents: {topic_data.get('document_count', 0)}")
-        if topic_data.get("documents"):
-            for doc in topic_data.get("documents", []):
-                print(f"    - {doc}")
-        print()
-    
-    return 0
-
-# Execute command
-    if args.command == "analyze":
-        return await run_analyze(args)
-    elif args.command == "rag":
-        if args.rag_command == "add":
-            return await run_rag_add(args)
-        elif args.rag_command == "query":
-            return await run_rag_query(args)
-        elif args.rag_command == "list":
-            return await run_rag_list(args)
-        elif args.rag_command == "topics":
-            return await run_rag_topics(args)
-        else:
-            logger.error(f"Unknown RAG command: {args.rag_command}")
+    # Additional RAG commands
+    async def run_rag_list(args):
+        """List documents in the RAG system."""
+        logger = get_logger("main")
+        logger.info(f"Listing documents in vector store: {args.vector_store}")
+        
+        # Create RAG agent
+        from agents.rag_agent import RAGAgent
+        rag_agent = RAGAgent({})
+        
+        # Initialize RAG agent with specified vector store
+        init_result = await rag_agent.run({
+            "command": "initialize",
+            "vector_store_dir": args.vector_store
+        })
+        
+        if not init_result.get("initialized", False):
+            logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
             return 1
-    elif args.command == "server":
-        return await start_server(args)
-    elif args.command == "version":
-        return print_version()
-    else:
-        print("Please specify a command. Use --help for more information.")
+        
+        # Get vector store info
+        info_result = await rag_agent.run({"command": "info"})
+        vector_store_info = info_result.get("vector_store_info", {})
+        
+        if not vector_store_info:
+            logger.error("Failed to get vector store information")
+            return 1
+        
+        # Print document information
+        print("\n" + "="*80)
+        print(f"DOCUMENTS IN VECTOR STORE: {args.vector_store}")
+        print("="*80)
+        
+        document_collection = vector_store_info.get("document_collection", {})
+        if not document_collection:
+            print("\nNo documents found in the vector store.")
+            return 0
+        
+        print(f"\nFound {len(document_collection)} document(s):\n")
+        
+        for doc_id, metadata in document_collection.items():
+            print(f"Document: {doc_id}")
+            print(f"  Path: {metadata.get('path', 'Unknown')}")
+            print(f"  Added: {metadata.get('added_at', 'Unknown')}")
+            print(f"  Size: {metadata.get('size_bytes', 0)} bytes")
+            print(f"  Topics: {', '.join(metadata.get('topics', ['unclassified']))}")
+            print()
+        
+        return 0
+
+    async def run_rag_topics(args):
+        """List topics in the RAG system."""
+        logger = get_logger("main")
+        logger.info(f"Listing topics in vector store: {args.vector_store}")
+        
+        # Create RAG agent
+        from agents.rag_agent import RAGAgent
+        rag_agent = RAGAgent({})
+        
+        # Initialize RAG agent with specified vector store
+        init_result = await rag_agent.run({
+            "command": "initialize",
+            "vector_store_dir": args.vector_store
+        })
+        
+        if not init_result.get("initialized", False):
+            logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
+            return 1
+        
+        # List topics
+        topics_result = await rag_agent.run({"command": "list_topics"})
+        
+        if not topics_result.get("topics_result", {}).get("success", False):
+            logger.error("Failed to list topics")
+            return 1
+        
+        # Print topic information
+        print("\n" + "="*80)
+        print(f"TOPICS IN VECTOR STORE: {args.vector_store}")
+        print("="*80)
+        
+        topics = topics_result.get("topics_result", {}).get("topics", {})
+        if not topics:
+            print("\nNo topics found in the vector store.")
+            return 0
+        
+        print(f"\nFound {len(topics)} topic(s):\n")
+        
+        for topic_name, topic_data in topics.items():
+            print(f"Topic: {topic_name}")
+            print(f"  Documents: {topic_data.get('document_count', 0)}")
+            if topic_data.get("documents"):
+                for doc in topic_data.get("documents", []):
+                    print(f"    - {doc}")
+            print()
+        
+        return 0
+
+    # Execute command
+    try:
+        if args.command == "analyze":
+            return await run_analyze(args)
+        elif args.command == "rag":
+            if args.rag_command == "add":
+                return await run_rag_add(args)
+            elif args.rag_command == "query":
+                return await run_rag_query(args)
+            elif args.rag_command == "list":
+                return await run_rag_list(args)
+            elif args.rag_command == "topics":
+                return await run_rag_topics(args)
+            else:
+                logger.error(f"Unknown RAG command: {args.rag_command}")
+                return 1
+        elif args.command == "server":
+            return await start_server(args)
+        elif args.command == "version":
+            return print_version()
+        else:
+            print("Please specify a command. Use --help for more information.")
+            return 1
+    except Exception as e:
+        import traceback
+        logger.error(f"Command execution error: {str(e)}")
+        logger.error(traceback.format_exc())
         return 1
 
 
 if __name__ == "__main__":
+    # Set up asyncio policy to properly handle all platforms
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
     try:
+        # Use asyncio.run which properly manages the event loop lifecycle
         exit_code = asyncio.run(main())
         sys.exit(exit_code)
     except KeyboardInterrupt:
@@ -540,4 +557,5 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         print(f"Unhandled exception: {e}")
+        traceback.print_exc()
         sys.exit(1)
