@@ -402,36 +402,46 @@ class PostgresTool(BaseTool):
         
         start_time = time.time()
         success = False
+        conn = None
         
         try:
             optimized_query = await self._optimize_query(query)
             
-            async with self.pool.acquire() as conn:
-                await self._get_query_plan(conn, optimized_query, params)
-                
-                stmt = await self._prepare_statement(conn, optimized_query)
-                
-                if optimized_query.strip().upper().startswith(("SELECT", "WITH")):
-                    if params:
-                        rows = await stmt.fetch(*params)
-                    else:
-                        rows = await stmt.fetch()
-                        
-                    result = [dict(row) for row in rows]
-                    success = True
-                    return True, result, None
+            # Get connection from pool
+            conn = await self.pool.acquire()
+            
+            # Execute query plan analysis
+            await self._get_query_plan(conn, optimized_query, params)
+            
+            # Prepare statement
+            stmt = await self._prepare_statement(conn, optimized_query)
+            
+            # Execute query based on type
+            if optimized_query.strip().upper().startswith(("SELECT", "WITH")):
+                if params:
+                    rows = await stmt.fetch(*params)
                 else:
-                    if params:
-                        await stmt.execute(*params)
-                    else:
-                        await stmt.execute()
-                    success = True
-                    return True, None, None
+                    rows = await stmt.fetch()
+                    
+                result = [dict(row) for row in rows]
+                success = True
+                return True, result, None
+            else:
+                if params:
+                    await stmt.execute(*params)
+                else:
+                    await stmt.execute()
+                success = True
+                return True, None, None
         except Exception as e:
             error_msg = f"Error executing query: {str(e)}"
             self.logger.error(error_msg)
             return False, None, error_msg
         finally:
+            # Release connection if acquired
+            if conn is not None:
+                await self.pool.release(conn)
+                
             execution_time = time.time() - start_time
             self.query_stats.record_query(query, execution_time, success)
             
@@ -443,30 +453,39 @@ class PostgresTool(BaseTool):
         
         start_time = time.time()
         success = False
+        conn = None
         
         try:
             optimized_query = await self._optimize_query(query)
             
-            async with self.pool.acquire() as conn:
-                stmt = await self._prepare_statement(conn, optimized_query)
+            # Get connection from pool
+            conn = await self.pool.acquire()
+            
+            # Prepare statement
+            stmt = await self._prepare_statement(conn, optimized_query)
+            
+            # Execute query
+            if params:
+                row = await stmt.fetchrow(*params)
+            else:
+                row = await stmt.fetchrow()
                 
-                if params:
-                    row = await stmt.fetchrow(*params)
-                else:
-                    row = await stmt.fetchrow()
-                    
-                if row:
-                    result = dict(row)
-                    success = True
-                    return True, result, None
-                else:
-                    success = True
-                    return True, None, None
+            if row:
+                result = dict(row)
+                success = True
+                return True, result, None
+            else:
+                success = True
+                return True, None, None
         except Exception as e:
             error_msg = f"Error fetching row: {str(e)}"
             self.logger.error(error_msg)
             return False, None, error_msg
         finally:
+            # Release connection if acquired
+            if conn is not None:
+                await self.pool.release(conn)
+                
             execution_time = time.time() - start_time
             self.query_stats.record_query(query, execution_time, success)
     

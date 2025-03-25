@@ -98,12 +98,16 @@ class MetaAgent(BaseAgent):
     
     async def save_state_snapshot(self, state: Dict[str, Any]) -> None:
         """Save current workflow state for possible rollback"""
+        # Filter out any None status values to avoid validation errors
+        agent_statuses = {name: task.status for name, task in self.agent_tasks.items() 
+                         if task.status is not None}
+        
         snapshot = WorkflowStateSnapshot(
             pending_agents=self.pending_agents.copy(),
             running_agents=self.running_agents.copy(),
             completed_agents=self.completed_agents.copy(),
             failed_agents=self.failed_agents.copy(),
-            agent_statuses={name: task.status for name, task in self.agent_tasks.items()}
+            agent_statuses=agent_statuses
         )
         
         self.state_history.append(snapshot)
@@ -740,7 +744,7 @@ class MetaAgent(BaseAgent):
         for agent_name in self.agent_tasks:
             status_key = f"{agent_name}_status"
             
-            if status_key in state:
+            if status_key in state and state[status_key] is not None:
                 # Update our internal tracking
                 await self.update_agent_status(
                     agent_name, 

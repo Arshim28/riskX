@@ -43,7 +43,7 @@ def check_environment():
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Financial Forensic Analysis System")
+    parser = argparse.ArgumentParser(description="Corporate Forensic Analysis System")
     
     # Add subparsers for different commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -365,16 +365,12 @@ def print_version():
 
 
 async def main():
-    """Main entry point."""
-    # Check environment variables first
     if not check_environment():
         return 1
-        
-    # Set up logging
+
     setup_logging("forensic_system")
     logger = get_logger("main")
     
-    # Parse arguments
     args = parse_args()
     
     # Initialize providers
@@ -399,7 +395,7 @@ async def main():
             "providers": {
                 "google": {
                     "api_key": os.environ.get("GOOGLE_API_KEY"),
-                    "default_model": "gemini-1.5-pro"
+                    "default_model": "gemini-2.0-flash"
                 },
                 "mistralai": {
                     "api_key": os.environ.get("MISTRAL_API_KEY"),
@@ -543,11 +539,7 @@ async def main():
         return 1
 
 
-if __name__ == "__main__":
-    # Set up asyncio policy to properly handle all platforms
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
+if __name__ == "__main__":        
     try:
         # Use asyncio.run which properly manages the event loop lifecycle
         exit_code = asyncio.run(main())

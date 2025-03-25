@@ -45,6 +45,15 @@ ocr_vector_store:
   chunk_overlap: 500
   max_chunks_per_batch: 50
 
+postgres:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  database: "forensic_db"
+  min_connections: 2
+  max_connections: 20
+
 rag_agent:
   retrieval_k: 5
   reranking_enabled: false
