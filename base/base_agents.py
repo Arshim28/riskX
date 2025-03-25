@@ -85,14 +85,14 @@ class AgentState(BaseModel):
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to a dictionary with appropriate serialization."""
-        state_dict = self.dict(exclude={"state_ops"})
+        state_dict = self.model_dump(exclude={"state_ops"})
         # Handle non-serializable types if needed
         return state_dict
     
     def copy_with_updates(self, updates: Dict[str, Any]) -> "AgentState":
         """Create a new state with updates applied."""
         # Create a deep copy of current state
-        state_dict = self.dict(exclude={"state_ops"})
+        state_dict = self.model_dump(exclude={"state_ops"})
         # Apply updates
         state_dict.update(updates)
         # Create new state object
@@ -100,8 +100,8 @@ class AgentState(BaseModel):
     
     def get_updates_from(self, original_state: "AgentState") -> Dict[str, Any]:
         """Get the fields that have changed from the original state."""
-        original_dict = original_state.dict(exclude={"state_ops"})
-        current_dict = self.dict(exclude={"state_ops"})
+        original_dict = original_state.model_dump(exclude={"state_ops"})
+        current_dict = self.model_dump(exclude={"state_ops"})
         
         updates = {}
         for key, value in current_dict.items():

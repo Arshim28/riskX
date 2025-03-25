@@ -653,16 +653,17 @@ async def test_create_and_run_workflow_function():
          patch('os.path.exists', return_value=True):
         
         # Set up the mock workflow to return a simple result
-        mock_workflow_instance = MagicMock()
-        mock_workflow_instance.run_sync.return_value = {
+        mock_workflow_instance = AsyncMock()
+        mock_result = {
             "company": SAMPLE_COMPANY,
             "final_report": "# Test Report",
             "current_phase": "COMPLETE"
         }
+        mock_workflow_instance.run = AsyncMock(return_value=mock_result)
         mock_workflow_class.return_value = mock_workflow_instance
         
-        # Call the function
-        result = create_and_run_workflow(
+        # Call the function and await the result
+        result = await create_and_run_workflow(
             company=SAMPLE_COMPANY,
             industry=SAMPLE_INDUSTRY,
             config_path="dummy_path.json"
@@ -670,7 +671,7 @@ async def test_create_and_run_workflow_function():
         
         # Verify the workflow was created and run with the right parameters
         mock_workflow_class.assert_called_once()
-        mock_workflow_instance.run_sync.assert_called_once()
+        mock_workflow_instance.run.assert_called_once()
         
         # Verify we got the expected result
         assert result["company"] == SAMPLE_COMPANY
