@@ -7,12 +7,39 @@ import yaml
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 import logging
+from dotenv import load_dotenv
 
 from utils.logging import setup_logging, get_logger
 from utils.llm_provider import init_llm_provider
 from utils.prompt_manager import init_prompt_manager
-from langgraph_workflow import ForensicWorkflow, create_and_run_workflow
+from langgraph_workflow import EnhancedForensicWorkflow, create_and_run_workflow
 
+# Load environment variables
+load_dotenv()
+
+# Check required API keys
+required_env_vars = [
+    ("GOOGLE_API_KEY", "Google API key for Gemini"),
+    ("MISTRAL_API_KEY", "Mistral API key for OCR")
+]
+
+def check_environment():
+    """Check required environment variables."""
+    missing_vars = []
+    for var_name, description in required_env_vars:
+        if not os.environ.get(var_name):
+            missing_vars.append(f"{var_name} ({description})")
+            
+    if missing_vars:
+        print("ERROR: Missing required environment variables:")
+        for var in missing_vars:
+            print(f"  - {var}")
+        print("\nPlease set these environment variables in a .env file or in your environment.")
+        print("Example .env file format:")
+        print("GOOGLE_API_KEY=your_google_api_key_here")
+        print("MISTRAL_API_KEY=your_mistral_api_key_here")
+        return False
+    return True
 
 def parse_args():
     """Parse command line arguments."""
@@ -25,10 +52,17 @@ def parse_args():
     analyze_parser = subparsers.add_parser("analyze", help="Analyze a company")
     analyze_parser.add_argument("--company", required=True, help="Name of the company to analyze")
     analyze_parser.add_argument("--industry", help="Industry of the company")
-    analyze_parser.add_argument("--config", help="Path to config file")
+    analyze_parser.add_argument("--config", default="config.yaml", help="Path to config file")
     analyze_parser.add_argument("--output", help="Output file for report")
     analyze_parser.add_argument("--mode", choices=["full", "quick"], default="full", 
                                help="Analysis mode (full or quick)")
+    analyze_parser.add_argument("--enable-rag", dest="enable_rag", action="store_true", 
+                               help="Enable RAG for analysis")
+    analyze_parser.add_argument("--disable-rag", dest="enable_rag", action="store_false", 
+                               help="Disable RAG for analysis")
+    analyze_parser.add_argument("--vector-store", dest="vector_store_dir", default="vector_store",
+                               help="Vector store directory for RAG")
+    analyze_parser.set_defaults(enable_rag=True)
     
     # RAG commands
     rag_parser = subparsers.add_parser("rag", help="RAG operations")
@@ -38,11 +72,21 @@ def parse_args():
     rag_add_parser = rag_subparsers.add_parser("add", help="Add a document to RAG")
     rag_add_parser.add_argument("--file", required=True, help="Path to PDF file")
     rag_add_parser.add_argument("--topics", help="Comma-separated list of topics")
+    rag_add_parser.add_argument("--vector-store", default="vector_store", help="Vector store directory")
     
     # RAG query command
     rag_query_parser = rag_subparsers.add_parser("query", help="Query RAG system")
     rag_query_parser.add_argument("--query", required=True, help="Query to execute")
     rag_query_parser.add_argument("--topics", help="Comma-separated list of topics to filter by")
+    rag_query_parser.add_argument("--vector-store", default="vector_store", help="Vector store directory")
+    
+    # RAG list command
+    rag_list_parser = rag_subparsers.add_parser("list", help="List documents in RAG system")
+    rag_list_parser.add_argument("--vector-store", default="vector_store", help="Vector store directory")
+    
+    # RAG topics command
+    rag_topics_parser = rag_subparsers.add_parser("topics", help="List topics in RAG system")
+    rag_topics_parser.add_argument("--vector-store", default="vector_store", help="Vector store directory")
     
     # Server command
     server_parser = subparsers.add_parser("server", help="Start API server")
@@ -76,18 +120,31 @@ async def run_analyze(args):
     
     # Adjust configuration based on mode
     if args.mode == "quick":
-        config["max_iterations"] = 1
-        config["max_event_iterations"] = 1
-        config["forensic_analysis"] = config.get("forensic_analysis", {})
-        config["forensic_analysis"]["max_workers"] = config["forensic_analysis"].get("max_workers", 3)
-        logger.info("Running in quick mode with reduced iterations")
+        config["workflow"] = config.get("workflow", {})
+        config["workflow"]["max_parallel_agents"] = 2
+        config["workflow"]["analyst_pool_size"] = 2
+        config["workflow"]["require_plan_approval"] = False
+        logger.info("Running in quick mode with simplified workflow")
+    
+    # Configure RAG settings
+    logger.info(f"RAG enabled: {args.enable_rag}, vector store directory: {args.vector_store_dir}")
+    
+    # Create initial state with RAG configuration
+    initial_state = {
+        "company": args.company,
+        "industry": args.industry,
+        "enable_rag": args.enable_rag,
+        "vector_store_dir": args.vector_store_dir,
+        "rag_initialized": False
+    }
     
     # Run the workflow
     try:
         result = create_and_run_workflow(
             company=args.company,
             industry=args.industry,
-            config_path=args.config
+            config_path=args.config,
+            initial_state=initial_state
         )
         
         if result.get("error"):
@@ -101,8 +158,28 @@ async def run_analyze(args):
                 sanitized_company = args.company.replace(" ", "_")
                 output_file = f"{sanitized_company}_report_{datetime.now().strftime('%Y%m%d%H%M%S')}.md"
             
+            # Get final report content
+            report_content = result["final_report"]
+            
+            # Add RAG insights if enabled
+            if args.enable_rag and "analysis_results" in result and "rag_insights" in result["analysis_results"]:
+                rag_insights = result["analysis_results"]["rag_insights"]
+                
+                # Format RAG insights section
+                rag_section = "\n\n## Document-Based Insights\n\n"
+                rag_section += rag_insights.get("response", "No document-based insights available.")
+                
+                if rag_insights.get("sources"):
+                    rag_section += "\n\n### Sources\n\n"
+                    for i, source in enumerate(rag_insights["sources"], 1):
+                        rag_section += f"{i}. **{source.get('source', 'Unknown')}** (Page: {source.get('page', 'N/A')})\n"
+                
+                # Append RAG insights to report
+                report_content += rag_section
+            
+            # Write report to file
             with open(output_file, 'w') as f:
-                f.write(result["final_report"])
+                f.write(report_content)
             
             logger.info(f"Report saved to: {output_file}")
             
@@ -111,6 +188,11 @@ async def run_analyze(args):
             print(f"Report saved to: {output_file}")
             print(f"Found {len(result.get('top_events', []))} significant events")
             print(f"Identified {len(result.get('analysis_results', {}).get('red_flags', []))} red flags")
+            
+            # Print RAG summary if enabled
+            if args.enable_rag:
+                rag_status = "Used" if "rag_insights" in result.get("analysis_results", {}) else "Not used"
+                print(f"Document-based insights (RAG): {rag_status}")
         else:
             logger.error("No report generated")
             return 1
@@ -136,17 +218,25 @@ async def run_rag_add(args):
     if args.topics:
         topics = [t.strip() for t in args.topics.split(",")]
     
-    # Create workflow
-    workflow = ForensicWorkflow({})
+    # Create RAG agent
+    from agents.rag_agent import RAGAgent
+    rag_agent = RAGAgent({})
     
-    # Initialize RAG agent
-    init_result = await workflow.rag_agent.run({"command": "initialize"})
+    # Initialize RAG agent with specified vector store
+    vector_store_dir = args.vector_store
+    logger.info(f"Using vector store directory: {vector_store_dir}")
+    
+    init_result = await rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": vector_store_dir
+    })
+    
     if not init_result.get("initialized", False):
         logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
         return 1
     
     # Add document
-    add_result = await workflow.rag_agent.run({
+    add_result = await rag_agent.run({
         "command": "add_document",
         "pdf_path": args.file,
         "topics": topics
@@ -157,9 +247,9 @@ async def run_rag_add(args):
         return 1
     
     # Save vector store
-    save_result = await workflow.rag_agent.run({
+    save_result = await rag_agent.run({
         "command": "save",
-        "directory": "vector_store"
+        "directory": vector_store_dir
     })
     
     if not save_result.get("saved", False):
@@ -183,13 +273,18 @@ async def run_rag_query(args):
     if args.topics:
         filter_topics = [t.strip() for t in args.topics.split(",")]
     
-    # Create workflow
-    workflow = ForensicWorkflow({})
+    # Create RAG agent
+    from agents.rag_agent import RAGAgent
+    rag_agent = RAGAgent({})
+    
+    # Use specified vector store
+    vector_store_dir = args.vector_store
+    logger.info(f"Using vector store directory: {vector_store_dir}")
     
     # Initialize RAG agent and load vector store
-    init_result = await workflow.rag_agent.run({
+    init_result = await rag_agent.run({
         "command": "initialize",
-        "vector_store_dir": "vector_store"
+        "vector_store_dir": vector_store_dir
     })
     
     if not init_result.get("initialized", False):
@@ -197,7 +292,7 @@ async def run_rag_query(args):
         return 1
     
     # Execute query
-    query_result = await workflow.rag_agent.run({
+    query_result = await rag_agent.run({
         "command": "query",
         "query": args.query,
         "filter_topics": filter_topics
@@ -239,7 +334,7 @@ async def start_server(args):
     
     try:
         import uvicorn
-        from fastapi_app import app
+        from app import app
         
         print(f"Starting Financial Forensic Analysis API server on http://{args.host}:{args.port}")
         print("Press Ctrl+C to stop")
@@ -259,12 +354,16 @@ async def start_server(args):
 def print_version():
     """Print version information."""
     print("Financial Forensic Analysis System v1.0.0")
-    print("Copyright (c) 2025 Meta")
+    print("Copyright (c) 2025 riskX")
     return 0
 
 
 async def main():
     """Main entry point."""
+    # Check environment variables first
+    if not check_environment():
+        return 1
+        
     # Set up logging
     setup_logging("forensic_system")
     logger = get_logger("main")
@@ -273,10 +372,142 @@ async def main():
     args = parse_args()
     
     # Initialize providers
-    init_llm_provider({})
-    init_prompt_manager()
+    try:
+        # Load configuration
+        config_path = args.config if hasattr(args, 'config') else "config.yaml"
+        config = {}
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    if config_path.endswith('.yaml') or config_path.endswith('.yml'):
+                        config = yaml.safe_load(f)
+                    else:
+                        config = json.load(f)
+            except Exception as e:
+                logger.warning(f"Error loading config from {config_path}: {e}. Using default configuration.")
+        
+        # Initialize LLM provider with loaded config
+        provider_config = {
+            "default_provider": "google",
+            "providers": {
+                "google": {
+                    "api_key": os.environ.get("GOOGLE_API_KEY"),
+                    "default_model": "gemini-1.5-pro"
+                },
+                "mistralai": {
+                    "api_key": os.environ.get("MISTRAL_API_KEY"),
+                    "default_model": "mistral-large-latest"
+                }
+            }
+        }
+        
+        init_llm_provider(provider_config)
+        init_prompt_manager()
+        
+    except Exception as e:
+        logger.error(f"Error initializing providers: {e}")
+        return 1
     
-    # Execute command
+    # Add new functions for additional RAG commands
+async def run_rag_list(args):
+    """List documents in the RAG system."""
+    logger = get_logger("main")
+    logger.info(f"Listing documents in vector store: {args.vector_store}")
+    
+    # Create RAG agent
+    from agents.rag_agent import RAGAgent
+    rag_agent = RAGAgent({})
+    
+    # Initialize RAG agent with specified vector store
+    init_result = await rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": args.vector_store
+    })
+    
+    if not init_result.get("initialized", False):
+        logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
+        return 1
+    
+    # Get vector store info
+    info_result = await rag_agent.run({"command": "info"})
+    vector_store_info = info_result.get("vector_store_info", {})
+    
+    if not vector_store_info:
+        logger.error("Failed to get vector store information")
+        return 1
+    
+    # Print document information
+    print("\n" + "="*80)
+    print(f"DOCUMENTS IN VECTOR STORE: {args.vector_store}")
+    print("="*80)
+    
+    document_collection = vector_store_info.get("document_collection", {})
+    if not document_collection:
+        print("\nNo documents found in the vector store.")
+        return 0
+    
+    print(f"\nFound {len(document_collection)} document(s):\n")
+    
+    for doc_id, metadata in document_collection.items():
+        print(f"Document: {doc_id}")
+        print(f"  Path: {metadata.get('path', 'Unknown')}")
+        print(f"  Added: {metadata.get('added_at', 'Unknown')}")
+        print(f"  Size: {metadata.get('size_bytes', 0)} bytes")
+        print(f"  Topics: {', '.join(metadata.get('topics', ['unclassified']))}")
+        print()
+    
+    return 0
+
+async def run_rag_topics(args):
+    """List topics in the RAG system."""
+    logger = get_logger("main")
+    logger.info(f"Listing topics in vector store: {args.vector_store}")
+    
+    # Create RAG agent
+    from agents.rag_agent import RAGAgent
+    rag_agent = RAGAgent({})
+    
+    # Initialize RAG agent with specified vector store
+    init_result = await rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": args.vector_store
+    })
+    
+    if not init_result.get("initialized", False):
+        logger.error(f"Failed to initialize RAG agent: {init_result.get('error', 'Unknown error')}")
+        return 1
+    
+    # List topics
+    topics_result = await rag_agent.run({"command": "list_topics"})
+    
+    if not topics_result.get("topics_result", {}).get("success", False):
+        logger.error("Failed to list topics")
+        return 1
+    
+    # Print topic information
+    print("\n" + "="*80)
+    print(f"TOPICS IN VECTOR STORE: {args.vector_store}")
+    print("="*80)
+    
+    topics = topics_result.get("topics_result", {}).get("topics", {})
+    if not topics:
+        print("\nNo topics found in the vector store.")
+        return 0
+    
+    print(f"\nFound {len(topics)} topic(s):\n")
+    
+    for topic_name, topic_data in topics.items():
+        print(f"Topic: {topic_name}")
+        print(f"  Documents: {topic_data.get('document_count', 0)}")
+        if topic_data.get("documents"):
+            for doc in topic_data.get("documents", []):
+                print(f"    - {doc}")
+        print()
+    
+    return 0
+
+# Execute command
     if args.command == "analyze":
         return await run_analyze(args)
     elif args.command == "rag":
@@ -284,6 +515,10 @@ async def main():
             return await run_rag_add(args)
         elif args.rag_command == "query":
             return await run_rag_query(args)
+        elif args.rag_command == "list":
+            return await run_rag_list(args)
+        elif args.rag_command == "topics":
+            return await run_rag_topics(args)
         else:
             logger.error(f"Unknown RAG command: {args.rag_command}")
             return 1
@@ -292,7 +527,7 @@ async def main():
     elif args.command == "version":
         return print_version()
     else:
-        logger.error(f"Unknown command: {args.command}")
+        print("Please specify a command. Use --help for more information.")
         return 1
 
 

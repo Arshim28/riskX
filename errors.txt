@@ -1,0 +1,36 @@
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c5884953850 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements: RetryError[<Future at 0x7c5884953c50 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/annual-reports?index=equities&symbol=TST: RetryError[<Future at 0x7c58849510d0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/annual-reports?index=equities&symbol=TST
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c58849490d0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c588494a050 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c588493e6d0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:40:46] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-25 16:40:46] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-25 16:40:46] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-25 16:40:46] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-25 16:40:46] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-25 16:40:46] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/annual-reports?index=equities&symbol=TST: RetryError[<Future at 0x788dbefde990 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/annual-reports?index=equities&symbol=TST
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe5f5ef0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe543350 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements: RetryError[<Future at 0x788dbe543cd0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe542ad0 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:42:36] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe547650 state=finished raised ClientConnectorDNSError>]
+[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
+[2025-03-25 16:42:36] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>

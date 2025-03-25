@@ -47,11 +47,7 @@ class WorkflowState(TypedDict):
     analyst_agent_status: Optional[str]
     rag_agent_status: Optional[str]
     writer_agent_status: Optional[str]
-    
-    parallel_agents: List[str]
-    running_agents: Set[str]
-    completed_agents: Set[str]
-    failed_agents: Set[str]
+
     agent_results: Dict[str, Any]
     
     research_plan: List[Dict[str, Any]]
@@ -64,11 +60,11 @@ class WorkflowState(TypedDict):
     event_metadata: Dict[str, Dict[str, Any]]
     corporate_results: Dict[str, Any]
     youtube_results: Dict[str, Any]
+    rag_results: Dict[str, Any]
     analysis_results: Dict[str, Any]
     
     analyst_tasks: List[Dict[str, Any]]
     analyst_task_results: Dict[str, Any]
-    analyst_pool_size: int
     
     quality_assessment: Dict[str, Any]
     analysis_guidance: Dict[str, Any]
@@ -79,15 +75,439 @@ class WorkflowState(TypedDict):
     other_events: List[str]
     executive_briefing: Optional[str]
     
+    rag_initialized: bool
+    enable_rag: bool
+    vector_store_dir: Optional[str]
+    
     additional_research_completed: bool
     final_analysis_completed: bool
     final_analysis_requested: bool
-    synchronous_pipeline: bool
+    
     workflow_status: Dict[str, Any]
     execution_mode: str
+    current_phase: str
+
+
+class ResearchPool(BaseAgent):
+    name = "research_pool"
+    
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.config = config
+        self.logger = get_logger(self.name)
+        
+        # Initialize component agents
+        self.research_agent = ResearchAgent(config)
+        self.youtube_agent = YouTubeAgent(config)
+        self.corporate_agent = CorporateAgent(config)
+        self.rag_agent = RAGAgent(config)
+        
+        # Configuration parameters
+        self.max_parallel_agents = config.get("workflow", {}).get("max_parallel_agents", 3)
+        
+    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Implements the abstract _execute method required by BaseAgent."""
+        return await self.run(state)
+    
+    async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Run the research pool with parallel execution of multiple agents.
+        This pool manages ResearchAgent, YouTubeAgent, and CorporateAgent.
+        """
+        self._log_start(state)
+        
+        company = state.get("company", "")
+        if not company:
+            self.logger.error("Company name is missing!")
+            return {**state, "goto": "meta_agent", "error": "Company name is missing"}
+        
+        self.logger.info(f"Starting research pool for {company}")
+        
+        # Prepare a results container
+        pool_results = {
+            "research_results": {},
+            "corporate_results": {},
+            "youtube_results": {},
+            "rag_results": {},
+            "event_metadata": {}
+        }
+        
+        # Determine which agents to run
+        agents_to_run = []
+        
+        # Always run the research agent
+        agents_to_run.append(self.research_agent)
+        
+        # Run corporate agent if company information is needed and not already present
+        if not state.get("corporate_results"):
+            agents_to_run.append(self.corporate_agent)
+        
+        # Run YouTube agent if video research is needed and not already present
+        if not state.get("youtube_results"):
+            agents_to_run.append(self.youtube_agent)
+            
+        # Run RAG agent if enabled and not already processed
+        if not state.get("rag_results") and state.get("enable_rag", True):
+            # Initialize RAG agent if needed
+            if not state.get("rag_initialized"):
+                # Prepare state for RAG agent
+                rag_state = {
+                    "command": "initialize",
+                    "vector_store_dir": state.get("vector_store_dir", "vector_store")
+                }
+                
+                # Initialize RAG agent
+                try:
+                    init_result = await self.rag_agent.run(rag_state)
+                    if init_result.get("initialized", False):
+                        state["rag_initialized"] = True
+                        self.logger.info("RAG agent initialized successfully")
+                    else:
+                        self.logger.warning(f"RAG agent initialization failed: {init_result.get('error')}")
+                except Exception as e:
+                    self.logger.error(f"Error initializing RAG agent: {str(e)}")
+            
+            # Add RAG agent to the pool if initialized
+            if state.get("rag_initialized", False):
+                agents_to_run.append(self.rag_agent)
+        
+        # Run agents concurrently
+        self.logger.info(f"Running {len(agents_to_run)} research agents concurrently")
+        
+        # Create a ThreadPoolExecutor for parallel execution
+        with ThreadPoolExecutor(max_workers=self.max_parallel_agents) as executor:
+            # Function to process an agent
+            def process_agent(agent):
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # Special handling for RAG agent
+                    if agent.name == "rag_agent":
+                        # Prepare RAG query based on company and research context
+                        rag_query = f"Provide key information and risk factors about {company}"
+                        if state.get("industry"):
+                            rag_query += f" in the {state['industry']} industry"
+                            
+                        # Create RAG state
+                        rag_state = {
+                            **state,
+                            "command": "query",
+                            "query": rag_query
+                        }
+                        agent_result = loop.run_until_complete(agent.run(rag_state))
+                    else:
+                        # Run other agents normally
+                        agent_result = loop.run_until_complete(agent.run(state))
+                    
+                    loop.close()
+                    return agent.name, agent_result
+                except Exception as e:
+                    loop.close()
+                    self.logger.error(f"Error running {agent.name}: {str(e)}")
+                    # Return error state
+                    return agent.name, {
+                        **state,
+                        "goto": "meta_agent",
+                        "error": f"Error in {agent.name}: {str(e)}",
+                        f"{agent.name}_status": "ERROR"
+                    }
+            
+            # Submit all agents to the thread pool
+            future_results = {executor.submit(process_agent, agent): agent for agent in agents_to_run}
+            
+            # Process completed agents as they finish
+            for future in future_results:
+                try:
+                    agent_name, agent_result = future.result()
+                    
+                    # Extract and merge results based on agent type
+                    if agent_name == "research_agent":
+                        if "research_results" in agent_result:
+                            pool_results["research_results"] = agent_result["research_results"]
+                        if "event_metadata" in agent_result:
+                            pool_results["event_metadata"] = agent_result["event_metadata"]
+                        
+                    elif agent_name == "corporate_agent":
+                        if "corporate_results" in agent_result:
+                            pool_results["corporate_results"] = agent_result["corporate_results"]
+                            
+                    elif agent_name == "youtube_agent":
+                        if "youtube_results" in agent_result:
+                            pool_results["youtube_results"] = agent_result["youtube_results"]
+                    
+                    elif agent_name == "rag_agent":
+                        # Process RAG agent results
+                        if agent_result.get("rag_status") == "RESPONSE_READY":
+                            # Store RAG results
+                            pool_results["rag_results"] = {
+                                "response": agent_result.get("response", ""),
+                                "retrieval_results": agent_result.get("retrieval_results", {}),
+                                "query": agent_result.get("query", "")
+                            }
+                    
+                    # Merge any error message
+                    if "error" in agent_result and agent_result["error"]:
+                        if "errors" not in pool_results:
+                            pool_results["errors"] = {}
+                        pool_results["errors"][agent_name] = agent_result["error"]
+                    
+                except Exception as e:
+                    self.logger.error(f"Error processing agent result: {str(e)}")
+        
+        # Combine all results
+        updated_state = {**state}
+        
+        # Update state with pool results
+        for key, value in pool_results.items():
+            if value:  # Only update if we have results
+                updated_state[key] = value
+        
+        # Set status for all agents
+        updated_state["research_agent_status"] = "DONE" if "research_results" in pool_results else state.get("research_agent_status", "UNKNOWN")
+        updated_state["corporate_agent_status"] = "DONE" if "corporate_results" in pool_results else state.get("corporate_agent_status", "UNKNOWN")
+        updated_state["youtube_agent_status"] = "DONE" if "youtube_results" in pool_results else state.get("youtube_agent_status", "UNKNOWN")
+        updated_state["rag_agent_status"] = "DONE" if "rag_results" in pool_results else state.get("rag_agent_status", "UNKNOWN")
+        
+        # Check for any errors
+        if "errors" in pool_results and pool_results["errors"]:
+            error_msgs = [f"{agent}: {error}" for agent, error in pool_results["errors"].items()]
+            error_summary = "; ".join(error_msgs)
+            updated_state["error"] = f"Research pool errors: {error_summary}"
+            self.logger.warning(f"Research pool completed with errors: {error_summary}")
+        else:
+            self.logger.info("Research pool completed successfully")
+            
+        # Return to meta_agent for next steps
+        updated_state["goto"] = "meta_agent"
+        
+        return updated_state
+
+
+class AnalystPool(BaseAgent):
+    name = "analyst_pool"
+    
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.config = config
+        self.logger = get_logger(self.name)
+        
+        # Initialize the analyst agent
+        self.analyst_agent = AnalystAgent(config)
+        
+        # Configuration parameters
+        self.max_workers = config.get("workflow", {}).get("analyst_pool_size", 5)
+        
+    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Implements the abstract _execute method required by BaseAgent."""
+        return await self.run(state)
+    
+    async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Run the analyst pool to process analytical tasks in parallel.
+        This pool manages analytical tasks using multiple analyst agent instances.
+        """
+        self._log_start(state)
+        
+        company = state.get("company", "")
+        if not company:
+            self.logger.error("Company name is missing!")
+            return {**state, "goto": "meta_agent", "error": "Company name is missing"}
+        
+        # Get analyst tasks
+        tasks = state.get("analyst_tasks", [])
+        
+        # If no tasks are specified but we have research results, create tasks from events
+        if not tasks and "research_results" in state:
+            research_results = state.get("research_results", {})
+            tasks = self._create_tasks_from_research(research_results)
+            self.logger.info(f"Created {len(tasks)} analyst tasks from research results")
+        
+        if not tasks:
+            self.logger.warning("No analyst tasks to process")
+            return {
+                **state,
+                "goto": "meta_agent",
+                "analyst_agent_status": "DONE",
+                "analysis_results": state.get("analysis_results", {}),
+                "error": "No analyst tasks to process"
+            }
+        
+        # Initialize results
+        results = {}
+        
+        # Run tasks in parallel with thread pool
+        self.logger.info(f"Processing {len(tasks)} analyst tasks with up to {self.max_workers} workers")
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Function to process a task
+            def process_task(task):
+                event_name = task.get("event_name")
+                event_data = task.get("event_data")
+                
+                # Skip invalid tasks
+                if not event_name or not event_data:
+                    return event_name, {"error": "Invalid task: missing event_name or event_data"}
+                
+                # Create a new analyst agent for this task (to avoid state conflicts)
+                task_agent = AnalystAgent(self.config)
+                
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # Process the event
+                    task_result = loop.run_until_complete(task_agent.process_event(
+                        company, event_name, event_data
+                    ))
+                    loop.close()
+                    return event_name, task_result
+                except Exception as e:
+                    loop.close()
+                    error_msg = f"Error processing event {event_name}: {str(e)}"
+                    return event_name, {"error": error_msg}
+            
+            # Submit all tasks to the thread pool
+            future_results = {executor.submit(process_task, task): task for task in tasks}
+            
+            # Process completed tasks as they finish
+            for future in future_results:
+                try:
+                    event_name, task_result = future.result()
+                    if event_name:  # Skip results with no event name
+                        results[event_name] = task_result
+                except Exception as e:
+                    self.logger.error(f"Error in task execution: {str(e)}")
+        
+        # Combine the results into a structured analysis result
+        analysis_results = self._combine_analysis_results(results, state)
+        
+        # Update state with analysis results
+        updated_state = {
+            **state,
+            "goto": "meta_agent",
+            "analyst_agent_status": "DONE",
+            "analysis_results": analysis_results,
+            "analyst_task_results": results
+        }
+        
+        self.logger.info(f"Analyst pool completed processing {len(tasks)} tasks")
+        return updated_state
+    
+    def _create_tasks_from_research(self, research_results: Dict[str, List[Dict]]) -> List[Dict]:
+        """Create analysis tasks from research results."""
+        tasks = []
+        
+        for event_name, event_articles in research_results.items():
+            # Skip events with no articles
+            if not event_articles:
+                continue
+                
+            # Create a task for this event
+            tasks.append({
+                "event_name": event_name,
+                "event_data": event_articles,
+                "analysis_type": "standard"
+            })
+        
+        return tasks
+    
+    def _combine_analysis_results(self, task_results: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        """Combine individual task results into a comprehensive analysis result."""
+        combined_results = {
+            "event_synthesis": {},
+            "forensic_insights": {},
+            "timeline": [],
+            "red_flags": [],
+            "entity_network": {},
+            "rag_insights": {}
+        }
+        
+        # Merge existing analysis results if available
+        if "analysis_results" in state and state["analysis_results"]:
+            for key in combined_results.keys():
+                if key in state["analysis_results"]:
+                    combined_results[key] = state["analysis_results"][key]
+        
+        # Add task results
+        for event_name, result in task_results.items():
+            # Skip failed tasks
+            if "error" in result and result["error"]:
+                continue
+                
+            # Add to event synthesis
+            if "event_synthesis" in result:
+                combined_results["event_synthesis"][event_name] = result["event_synthesis"]
+                
+            # Add to forensic insights
+            if "forensic_insights" in result:
+                combined_results["forensic_insights"][event_name] = result["forensic_insights"]
+                
+            # Add to timeline events
+            if "timeline" in result:
+                for event in result.get("timeline", []):
+                    if isinstance(event, dict) and "date" in event and "event" in event:
+                        combined_results["timeline"].append(event)
+                        
+            # Add to red flags
+            if "red_flags" in result:
+                for flag in result.get("red_flags", []):
+                    if flag and flag not in combined_results["red_flags"]:
+                        combined_results["red_flags"].append(flag)
+            
+            # Add entity information if available
+            if "entity_network" in result:
+                combined_results["entity_network"].update(result.get("entity_network", {}))
+        
+        # Sort timeline by date if possible
+        try:
+            combined_results["timeline"] = sorted(
+                combined_results["timeline"],
+                key=lambda x: datetime.strptime(x.get("date", "2000-01-01"), "%Y-%m-%d")
+            )
+        except:
+            # If sorting fails (e.g., due to date format), don't sort
+            pass
+        
+        # Integrate RAG results if available
+        if "rag_results" in state and state["rag_results"]:
+            rag_response = state["rag_results"].get("response", "")
+            if rag_response:
+                # Add RAG insights to the combined results
+                combined_results["rag_insights"] = {
+                    "response": rag_response,
+                    "query": state["rag_results"].get("query", ""),
+                    "sources": []
+                }
+                
+                # Extract source information
+                retrieval_results = state["rag_results"].get("retrieval_results", {})
+                for result in retrieval_results.get("results", []):
+                    if result.get("metadata"):
+                        source_info = {
+                            "source": result.get("metadata", {}).get("source", "Unknown"),
+                            "page": result.get("metadata", {}).get("page", "Unknown"),
+                            "relevance": result.get("score", 0)
+                        }
+                        combined_results["rag_insights"]["sources"].append(source_info)
+                
+                # Extract any additional red flags from RAG response
+                if rag_response and "red flag" in rag_response.lower():
+                    # Simple extraction of lines containing "red flag"
+                    for line in rag_response.split("\n"):
+                        if "red flag" in line.lower() and len(line) > 15:  # Ensure it's a meaningful line
+                            flag = line.strip()
+                            if flag not in combined_results["red_flags"]:
+                                combined_results["red_flags"].append(flag)
+        
+        return combined_results
 
 
 class EnhancedForensicWorkflow(BaseGraph):
+    """
+    Enhanced workflow implementing a true agent-based architecture with centralized orchestration.
+    This refactored version follows the simplified design with agent pools and MetaAgent orchestration.
+    """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
@@ -98,29 +518,22 @@ class EnhancedForensicWorkflow(BaseGraph):
         init_llm_provider(self.config)
         init_prompt_manager()
         
+        # Initialize agents and pools
         self.meta_agent = MetaAgent(self.config)
-        self.research_agent = ResearchAgent(self.config)
-        self.youtube_agent = YouTubeAgent(self.config)
-        self.corporate_agent = CorporateAgent(self.config)
-        self.analyst_agent = AnalystAgent(self.config)
-        self.rag_agent = RAGAgent(self.config)
+        self.research_pool = ResearchPool(self.config)
+        self.analyst_pool = AnalystPool(self.config)
         self.writer_agent = WriterAgent(self.config)
         
         # Initialize agent mapping
         self.agents = {
             "meta_agent": self.meta_agent,
-            "research_agent": self.research_agent,
-            "youtube_agent": self.youtube_agent,
-            "corporate_agent": self.corporate_agent,
-            "analyst_agent": self.analyst_agent, 
-            "rag_agent": self.rag_agent,
+            "research_pool": self.research_pool,
+            "analyst_pool": self.analyst_pool,
             "writer_agent": self.writer_agent,
             "meta_agent_final": self.meta_agent  # Use same instance with different node name
         }
         
         # Configure execution parameters
-        self.max_parallel_agents = config.get("workflow", {}).get("max_parallel_agents", 3)
-        self.analyst_pool_size = config.get("workflow", {}).get("analyst_pool_size", 5)
         self.require_plan_approval = config.get("workflow", {}).get("require_plan_approval", True)
         
         # Create the workflow graph
@@ -157,75 +570,43 @@ class EnhancedForensicWorkflow(BaseGraph):
         self.conditional_edges[source] = router
     
     def build_graph(self) -> CompiledGraph:
-        """Build the enhanced workflow graph with parallel execution."""
+        """
+        Build the enhanced workflow graph with a true agent-based architecture.
+        This simplified design has MetaAgent as the central orchestrator with agent pools.
+        """
         # State and workflow settings
         workflow = StateGraph(WorkflowState)
         
-        # Add nodes for each agent
+        # Add nodes for each agent/pool
         for agent_name, agent in self.agents.items():
             workflow.add_node(agent_name, self.create_agent_node(agent, agent_name))
         
-        # Add special nodes for parallel execution, user interaction and coordination
-        workflow.add_node("parallel_executor", self.parallel_executor_node)
-        workflow.add_node("plan_approval", self.plan_approval_node)
-        workflow.add_node("research_complete", self.research_complete_node)
-        workflow.add_node("analyst_pool", self.analyst_pool_node)
-        
-        # Add entry point to meta_agent
+        # Set entry point to meta_agent
         workflow.set_entry_point("meta_agent")
         
-        # Connect meta_agent to plan_approval
-        workflow.add_edge("meta_agent", "plan_approval")
+        # MetaAgent is the central orchestration point
+        # It connects to all agent pools and receives control back after each pool completes
         
-        # Connect plan_approval to parallel_executor or back to meta_agent
-        workflow.add_conditional_edges(
-            "plan_approval",
-            self.route_from_plan_approval,
-            {
-                "parallel_executor": "parallel_executor",
-                "meta_agent": "meta_agent"
-            }
-        )
-        
-        # Connect parallel_executor to research_complete
-        workflow.add_conditional_edges(
-            "parallel_executor",
-            self.route_from_parallel_executor,
-            {
-                "research_complete": "research_complete",
-                "parallel_executor": "parallel_executor"
-            }
-        )
-        
-        # Connect research_complete to meta_agent
-        workflow.add_edge("research_complete", "meta_agent")
-        
-        # Connect meta_agent to analyst_pool or writer_agent
+        # Connect meta_agent to other agents/pools based on routing logic
         workflow.add_conditional_edges(
             "meta_agent",
             self.route_from_meta_agent,
             {
+                "research_pool": "research_pool",
                 "analyst_pool": "analyst_pool",
                 "writer_agent": "writer_agent",
-                "parallel_executor": "parallel_executor",
+                "meta_agent_final": "meta_agent_final",
                 "END": END
             }
         )
         
-        # Connect analyst_pool to meta_agent
+        # All other agents/pools return to meta_agent
+        workflow.add_edge("research_pool", "meta_agent")
         workflow.add_edge("analyst_pool", "meta_agent")
+        workflow.add_edge("writer_agent", "meta_agent")
         
-        # Connect writer_agent to meta_agent_final
-        workflow.add_edge("writer_agent", "meta_agent_final")
-        
-        # Connect meta_agent_final to END
+        # Final meta_agent node connects to END
         workflow.add_edge("meta_agent_final", END)
-        
-        # Add error handler to capture exceptions
-        if self.config.get("enable_error_handling", True):
-            workflow.add_node("error_handler", self.handle_error)
-            # The following line is causing the error - commented out as set_error_handler doesn't exist
-            # workflow.set_error_handler("error_handler")
         
         # Compile graph
         memory_saver = MemorySaver()
@@ -235,7 +616,7 @@ class EnhancedForensicWorkflow(BaseGraph):
         """Create a function that runs an agent and handles async execution."""
         async def run_agent(state: WorkflowState) -> WorkflowState:
             # Update state if agent has specific status field
-            agent_status_field = f"{agent.name}_status"
+            agent_status_field = f"{agent.name}_status" 
             if agent_status_field not in state:
                 state[agent_status_field] = "RUNNING"
                 
@@ -243,51 +624,14 @@ class EnhancedForensicWorkflow(BaseGraph):
                 # Execute agent
                 updated_state = await agent.run(dict(state))
                 
-                # Ensure goto field is preserved 
-                if "goto" not in updated_state:
-                    updated_state["goto"] = "meta_agent"
-                    
                 # Ensure status field is updated
                 if agent_status_field not in updated_state:
                     updated_state[agent_status_field] = "DONE"
-                
-                # If this is part of parallel execution, track in completed_agents
-                if agent_name in state.get("parallel_agents", []):
-                    if "completed_agents" not in updated_state:
-                        updated_state["completed_agents"] = set()
-                    updated_state["completed_agents"].add(agent_name)
-                    
-                    # Store agent results in the agent_results dict
-                    result_key = f"{agent_name}_results"
-                    agent_results = updated_state.get("agent_results", {})
-                    
-                    # Extract agent-specific results based on agent type
-                    if agent_name == "research_agent":
-                        agent_results["research_agent"] = {
-                            "research_results": updated_state.get("research_results", {}),
-                            "event_metadata": updated_state.get("event_metadata", {})
-                        }
-                    elif agent_name == "corporate_agent":
-                        agent_results["corporate_agent"] = {
-                            "corporate_results": updated_state.get("corporate_results", {})
-                        }
-                    elif agent_name == "youtube_agent":
-                        agent_results["youtube_agent"] = {
-                            "youtube_results": updated_state.get("youtube_results", {})
-                        }
-                        
-                    updated_state["agent_results"] = agent_results
                 
                 return updated_state
                 
             except Exception as e:
                 self.logger.error(f"Error in {agent.name}: {str(e)}")
-                
-                # If this is part of parallel execution, track in failed_agents
-                if agent_name in state.get("parallel_agents", []):
-                    if "failed_agents" not in state:
-                        state["failed_agents"] = set()
-                    state["failed_agents"].add(agent_name)
                 
                 return {
                     **state,
@@ -313,310 +657,42 @@ class EnhancedForensicWorkflow(BaseGraph):
                 
         return run_agent_sync
     
-    def parallel_executor_node(self, state: WorkflowState) -> WorkflowState:
-        """Node for executing multiple agents in parallel."""
-        # Initialize tracking sets if not present
-        if "running_agents" not in state:
-            state["running_agents"] = set()
-        if "completed_agents" not in state:
-            state["completed_agents"] = set()
-        if "failed_agents" not in state:
-            state["failed_agents"] = set()
-        if "agent_results" not in state:
-            state["agent_results"] = {}
-            
-        # Get the list of parallel agents to run
-        parallel_agents = state.get("parallel_agents", [])
-        if not parallel_agents:
-            # Default to research, corporate, and youtube agents
-            parallel_agents = ["research_agent", "corporate_agent", "youtube_agent"]
-            state["parallel_agents"] = parallel_agents
-        
-        # Track which agents are still running
-        running = state["running_agents"]
-        completed = state["completed_agents"]
-        failed = state["failed_agents"]
-        
-        # Determine next step
-        if running.union(completed).union(failed) == set(parallel_agents):
-            # All agents have been started, check if all are done
-            if running:
-                # Some agents are still running, return to same node to wait
-                self.logger.info(f"Waiting for {len(running)} agents to complete")
-                return {**state, "goto": "parallel_executor"}
-            else:
-                # All agents are done (completed or failed), go to research_complete
-                self.logger.info(f"All parallel agents completed: {completed} | failed: {failed}")
-                
-                # Merge results from all agents
-                self.merge_parallel_results(state)
-                
-                return {**state, "goto": "research_complete"}
-        else:
-            # There are agents that haven't been started yet
-            available_agents = set(parallel_agents) - running - completed - failed
-            
-            # Limit the number of concurrent agents
-            max_concurrent = min(self.max_parallel_agents - len(running), len(available_agents))
-            
-            if max_concurrent <= 0:
-                # At max concurrency, wait for some to complete
-                return {**state, "goto": "parallel_executor"}
-                
-            # Start new agents up to max_concurrent
-            next_agents = list(available_agents)[:max_concurrent]
-            self.logger.info(f"Starting parallel agents: {next_agents}")
-            
-            # Update running agents
-            state["running_agents"] = running.union(set(next_agents))
-            
-            # Set which agent to run next
-            return {**state, "goto": next_agents[0]}
-    
-    def merge_parallel_results(self, state: WorkflowState) -> None:
-        """Merge results from parallel agents into the main state."""
-        agent_results = state.get("agent_results", {})
-        
-        # Merge research agent results
-        if "research_agent" in agent_results:
-            research_data = agent_results["research_agent"]
-            if "research_results" in research_data:
-                state["research_results"] = research_data["research_results"]
-            if "event_metadata" in research_data:
-                state["event_metadata"] = research_data["event_metadata"]
-        
-        # Merge corporate agent results
-        if "corporate_agent" in agent_results:
-            corporate_data = agent_results["corporate_agent"]
-            if "corporate_results" in corporate_data:
-                state["corporate_results"] = corporate_data["corporate_results"]
-        
-        # Merge youtube agent results
-        if "youtube_agent" in agent_results:
-            youtube_data = agent_results["youtube_agent"]
-            if "youtube_results" in youtube_data:
-                state["youtube_results"] = youtube_data["youtube_results"]
-    
-    def plan_approval_node(self, state: WorkflowState) -> WorkflowState:
-        """Node for user approval of research plan."""
-        # Check if plan requires approval
-        if self.require_plan_approval and not state.get("user_approved", False):
-            # Set state to require user approval
-            state["requires_user_approval"] = True
-            state["user_approval_type"] = "research_plan"
-            
-            # If user has provided feedback or approval, process it
-            if state.get("user_feedback"):
-                feedback = state.get("user_feedback", {})
-                
-                if feedback.get("approved", False):
-                    # User approved the plan
-                    state["user_approved"] = True
-                    state["requires_user_approval"] = False
-                    state["user_approval_type"] = None
-                    
-                    # Apply any modifications to the research plan
-                    if "modified_plan" in feedback:
-                        state["research_plan"][-1] = feedback["modified_plan"]
-                    
-                    # Continue to parallel execution
-                    return {**state, "goto": "parallel_executor"}
-                else:
-                    # User rejected the plan, go back to meta_agent for revision
-                    state["user_approved"] = False
-                    state["requires_user_approval"] = False
-                    state["user_approval_type"] = None
-                    
-                    if "feedback_text" in feedback:
-                        # Add feedback to state for meta_agent to use
-                        state["plan_feedback"] = feedback["feedback_text"]
-                    
-                    return {**state, "goto": "meta_agent"}
-            
-            # Waiting for user approval, stay in the same state
-            return state
-        else:
-            # No approval required or already approved, proceed to parallel execution
-            state["user_approved"] = True
-            return {**state, "goto": "parallel_executor"}
-    
-    def research_complete_node(self, state: WorkflowState) -> WorkflowState:
-        """Node for coordinating end of research phase and starting analysis."""
-        # Check if research was successful
-        research_results = state.get("research_results", {})
-        
-        if not research_results:
-            # No research results, log error and return to meta_agent for handling
-            self.logger.warning("No research results found. Returning to meta_agent.")
-            return {**state, "goto": "meta_agent", "error": "No research results found"}
-        
-        # Clear parallel execution tracking for next phase
-        state["parallel_agents"] = []
-        state["running_agents"] = set()
-        state["completed_agents"] = set()
-        state["failed_agents"] = set()
-        
-        # Set research completion flag
-        state["research_completed"] = True
-        
-        # Proceed to meta_agent for planning the analysis phase
-        return {**state, "goto": "meta_agent"}
-    
-    def analyst_pool_node(self, state: WorkflowState) -> WorkflowState:
-        """Node for managing pool of analyst agents working on different tasks."""
-        # Initialize analyst pool tracking if not present
-        if "analyst_tasks" not in state:
-            state["analyst_tasks"] = []
-        if "analyst_task_results" not in state:
-            state["analyst_task_results"] = {}
-        if "analyst_pool_size" not in state:
-            state["analyst_pool_size"] = self.analyst_pool_size
-        
-        # Get current tasks and results
-        tasks = state["analyst_tasks"]
-        results = state["analyst_task_results"]
-        
-        # Check if all tasks are completed
-        if not tasks:
-            # All tasks completed, merge results and return to meta_agent
-            
-            # If we have analysis results from tasks, merge them
-            if results:
-                # Basic merging logic - in a real implementation this would be more sophisticated
-                all_analysis = {}
-                for event_name, event_analysis in results.items():
-                    all_analysis[event_name] = event_analysis
-                
-                state["analysis_results"] = {"forensic_insights": all_analysis}
-                
-            # Set analysis completion flag
-            state["analysis_completed"] = True
-            
-            return {**state, "goto": "meta_agent"}
-        
-        # Create a thread pool to process tasks in parallel
-        with ThreadPoolExecutor(max_workers=state["analyst_pool_size"]) as executor:
-            # Function to process a task
-            def process_task(task):
-                # Extract task data
-                event_name = task["event_name"]
-                event_data = task["event_data"]
-                
-                # Clone the analyst agent for this task
-                task_agent = AnalystAgent(self.config)
-                
-                # Create task state
-                task_state = {
-                    "company": state["company"],
-                    "event_name": event_name,
-                    "event_data": event_data,
-                    "analysis_type": task.get("analysis_type", "standard")
-                }
-                
-                # Run the agent synchronously in this thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    task_result = loop.run_until_complete(task_agent.process_event(
-                        state["company"], event_name, event_data
-                    ))
-                    loop.close()
-                    return event_name, task_result
-                except Exception as e:
-                    loop.close()
-                    self.logger.error(f"Error processing analyst task for {event_name}: {str(e)}")
-                    return event_name, {"error": str(e)}
-            
-            # Submit all tasks to the thread pool
-            future_results = {executor.submit(process_task, task): task for task in tasks}
-            
-            # Process completed tasks as they finish
-            for future in future_results:
-                try:
-                    event_name, task_result = future.result()
-                    results[event_name] = task_result
-                except Exception as e:
-                    self.logger.error(f"Task execution failed: {str(e)}")
-        
-        # All tasks have been processed
-        state["analyst_tasks"] = []
-        state["analyst_task_results"] = results
-        
-        # Continue to meta_agent
-        return {**state, "goto": "meta_agent"}
-    
     def route_from_meta_agent(self, state: WorkflowState) -> str:
-        """Routing logic from meta_agent to next node."""
-        # Check for explicit routing
+        """
+        Centralized routing logic from meta_agent to next node.
+        All routing decisions are now made in the MetaAgent based on the current phase.
+        """
+        # Check for explicit routing in the goto field
         goto = state.get("goto")
+        if goto in ["research_pool", "analyst_pool", "writer_agent", "meta_agent_final", "END"]:
+            return goto
         
-        if goto == "END":
-            return "END"
-            
-        # Check workflow phase
-        if not state.get("research_completed", False):
-            # Still in research phase, route based on context
-            if not state.get("research_plan"):
-                # No research plan yet, first iteration
-                return "plan_approval"
-            else:
-                # Has research plan, either do more research or move to analysis
-                if state.get("requires_additional_research", False):
-                    # Setup parallel agents for more research
-                    state["parallel_agents"] = ["research_agent"]
-                    return "parallel_executor"
-                else:
-                    # Start analysis phase
-                    return "analyst_pool"
-        elif not state.get("analysis_completed", False):
-            # In analysis phase
+        # Check current phase to determine routing
+        current_phase = state.get("current_phase", "RESEARCH")
+        
+        if current_phase == "RESEARCH":
+            # In research phase, route to research pool
+            return "research_pool"
+        
+        elif current_phase == "ANALYSIS":
+            # In analysis phase, route to analyst pool
             return "analyst_pool"
-        elif not state.get("report_completed", False):
-            # In report generation phase
+        
+        elif current_phase == "REPORT_GENERATION":
+            # In report generation phase, route to writer agent
             return "writer_agent"
-        else:
-            # All phases completed
+        
+        elif current_phase == "REPORT_REVIEW":
+            # In report review phase, route to final meta agent
             return "meta_agent_final"
-    
-    def route_from_parallel_executor(self, state: WorkflowState) -> str:
-        """Determine if parallel execution is complete or should continue."""
-        # Get tracking sets
-        running = state.get("running_agents", set())
-        completed = state.get("completed_agents", set())
-        failed = state.get("failed_agents", set())
-        parallel_agents = state.get("parallel_agents", [])
         
-        # Check if all parallel agents have completed or failed
-        if len(completed) + len(failed) == len(parallel_agents) and not running:
-            return "research_complete"
-        else:
-            # Continue executing parallel agents
-            return "parallel_executor"
-    
-    def route_from_plan_approval(self, state: WorkflowState) -> str:
-        """Determine route based on plan approval status."""
-        if state.get("user_approved", False):
-            return "parallel_executor"
-        else:
-            return "meta_agent"
-    
-    def handle_error(self, state: WorkflowState) -> WorkflowState:
-        """Handle errors in the workflow."""
-        error_info = traceback.format_exc()
+        elif current_phase == "COMPLETE":
+            # Workflow is complete
+            return "END"
         
-        self.logger.error(f"Workflow error: {error_info}")
-        
-        # Update state with error information
-        state["error"] = f"Workflow error: {error_info[:500]}..." if len(error_info) > 500 else error_info
-        state["goto"] = "meta_agent"  # Route back to meta_agent to handle error
-        
-        # Update status fields to indicate error
-        for agent_name in self.agents:
-            status_field = f"{agent_name}_status" 
-            if status_field in state and state[status_field] == "RUNNING":
-                state[status_field] = "ERROR"
-        
-        return state
+        # Default to ending the workflow if phase is unknown
+        self.logger.warning(f"Unknown phase: {current_phase}, ending workflow")
+        return "END"
     
     async def run(self, initial_state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the workflow with the given initial state."""
@@ -642,14 +718,13 @@ class EnhancedForensicWorkflow(BaseGraph):
             # Check for user approval needed
             if current_state.get("requires_user_approval", False):
                 # This would normally wait for user input via API
-                # For demonstration, we simulate approval after 1 second
                 self.logger.info(f"Requires user approval of type: {current_state.get('user_approval_type')}")
                 
                 # In a real implementation, this would wait for user input via API
                 # For now, we just continue with auto-approval for demonstration
                 if "user_feedback" not in current_state:
                     current_state["user_feedback"] = {"approved": True}
-                
+            
             # Save checkpoint if configured
             if self.config.get("checkpoint_path"):
                 self._save_checkpoint(current_state, f"{current_node}_{datetime.now().strftime('%Y%m%d%H%M%S')}")
@@ -691,6 +766,7 @@ class EnhancedForensicWorkflow(BaseGraph):
             "event_metadata": {},
             "corporate_results": {},
             "youtube_results": {},
+            "rag_results": {},
             "analysis_results": {},
             "quality_assessment": {},
             "analysis_guidance": {},
@@ -699,24 +775,22 @@ class EnhancedForensicWorkflow(BaseGraph):
             "top_events": [],
             "other_events": [],
             "executive_briefing": None,
+            "rag_initialized": False,
+            "enable_rag": True,
+            "vector_store_dir": "vector_store",
             "additional_research_completed": False,
             "final_analysis_completed": False,
             "final_analysis_requested": False,
-            "synchronous_pipeline": False,
             "workflow_status": {},
             "user_approved": False,
             "requires_user_approval": False,
             "user_approval_type": None,
             "user_feedback": None,
-            "parallel_agents": [],
-            "running_agents": set(),
-            "completed_agents": set(),
-            "failed_agents": set(),
             "agent_results": {},
             "analyst_tasks": [],
             "analyst_task_results": {},
-            "analyst_pool_size": 5,
-            "execution_mode": "parallel"
+            "execution_mode": "parallel",
+            "current_phase": "RESEARCH"  # Initial phase
         }
         
         # Merge with provided state, preferring provided values
@@ -744,7 +818,8 @@ class EnhancedForensicWorkflow(BaseGraph):
 def create_and_run_workflow(
     company: str,
     industry: Optional[str] = None,
-    config_path: Optional[str] = None
+    config_path: Optional[str] = None,
+    initial_state: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Create and run a forensic workflow for the given company."""
     # Load configuration
@@ -762,11 +837,21 @@ def create_and_run_workflow(
     # Create workflow
     workflow = EnhancedForensicWorkflow(config)
     
-    # Prepare initial state
-    initial_state = {
-        "company": company,
-        "industry": industry
-    }
+    # Prepare initial state if not provided
+    if initial_state is None:
+        initial_state = {
+            "company": company,
+            "industry": industry,
+            "enable_rag": True,
+            "vector_store_dir": "vector_store",
+            "rag_initialized": False
+        }
+    else:
+        # Ensure company and industry are set in the initial state
+        if "company" not in initial_state:
+            initial_state["company"] = company
+        if "industry" not in initial_state and industry is not None:
+            initial_state["industry"] = industry
     
     # Run workflow
     logger.info(f"Running workflow for company: {company}")

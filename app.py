@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from utils.logging import setup_logging, get_logger
 from utils.llm_provider import init_llm_provider
 from utils.prompt_manager import init_prompt_manager
-from langgraph_workflow import ForensicWorkflow, WorkflowState
+from langgraph_workflow import EnhancedForensicWorkflow, WorkflowState
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -52,7 +52,7 @@ init_llm_provider(config)
 init_prompt_manager()
 
 # Create workflow instance
-workflow = ForensicWorkflow(config)
+workflow = EnhancedForensicWorkflow(config)
 
 # Create storage directory for reports and uploads
 os.makedirs("reports", exist_ok=True)
@@ -68,6 +68,8 @@ class CompanyInput(BaseModel):
     company: str
     industry: Optional[str] = None
     config_overrides: Optional[Dict[str, Any]] = None
+    enable_rag: Optional[bool] = True
+    vector_store_dir: Optional[str] = "vector_store"
     
 
 class QueryInput(BaseModel):
@@ -117,7 +119,10 @@ async def run_workflow_task(workflow_id: str, company: str, industry: Optional[s
         initial_state = {
             "company": company,
             "industry": industry,
-            "workflow_id": workflow_id
+            "workflow_id": workflow_id,
+            "enable_rag": config_overrides.get("enable_rag", True) if config_overrides else True,
+            "vector_store_dir": config_overrides.get("vector_store_dir", "vector_store") if config_overrides else "vector_store",
+            "rag_initialized": False
         }
         
         # Apply any config overrides
@@ -190,13 +195,18 @@ async def start_workflow(
     """Start a new analysis workflow for a company."""
     workflow_id = f"{input_data.company.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
+    # Prepare config overrides including RAG settings
+    config_overrides = input_data.config_overrides or {}
+    config_overrides["enable_rag"] = input_data.enable_rag
+    config_overrides["vector_store_dir"] = input_data.vector_store_dir
+    
     # Start workflow as background task
     background_tasks.add_task(
         run_workflow_task,
         workflow_id=workflow_id,
         company=input_data.company,
         industry=input_data.industry,
-        config_overrides=input_data.config_overrides
+        config_overrides=config_overrides
     )
     
     # Return initial status
@@ -229,7 +239,7 @@ async def get_workflow_status(workflow_id: str):
 
 
 @app.get("/workflow/{workflow_id}/report")
-async def get_workflow_report(workflow_id: str):
+async def get_workflow_report(workflow_id: str, include_rag_insights: bool = True):
     """Get the final report from a workflow."""
     # Check if workflow exists
     if workflow_id not in active_workflows:
@@ -244,6 +254,29 @@ async def get_workflow_report(workflow_id: str):
     report_file = f"reports/{workflow_id}_report.md"
     if not os.path.exists(report_file):
         raise HTTPException(status_code=404, detail=f"Report for workflow {workflow_id} not found")
+    
+    # Add RAG insights if requested and available
+    if include_rag_insights and workflow_id in workflow_results:
+        result = workflow_results[workflow_id]
+        if "analysis_results" in result and "rag_insights" in result["analysis_results"]:
+            # Append RAG insights to the report
+            with open(report_file, 'r') as f:
+                report_content = f.read()
+            
+            rag_insights = result["analysis_results"]["rag_insights"]
+            
+            # Format RAG insights section
+            rag_section = "\n\n## Document-Based Insights\n\n"
+            rag_section += rag_insights.get("response", "No document-based insights available.")
+            
+            if rag_insights.get("sources"):
+                rag_section += "\n\n### Sources\n\n"
+                for i, source in enumerate(rag_insights["sources"], 1):
+                    rag_section += f"{i}. **{source.get('source', 'Unknown')}** (Page: {source.get('page', 'N/A')})\n"
+            
+            # Write updated report
+            with open(report_file, 'w') as f:
+                f.write(report_content + rag_section)
     
     # Return report file
     return FileResponse(report_file, media_type="text/markdown")
@@ -302,6 +335,15 @@ async def upload_document(
         except:
             # Try comma-separated string
             topic_list = [t.strip() for t in topics.split(",")]
+    
+    # Ensure RAG agent is initialized first
+    init_result = await workflow.rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": "vector_store"
+    })
+    
+    if not init_result.get("initialized", False):
+        raise HTTPException(status_code=500, detail="Failed to initialize RAG system")
     
     # Add document to RAG agent
     result = await workflow.rag_agent.run({
@@ -366,6 +408,15 @@ async def categorize_document(
     categories: DocumentCategoryInput
 ):
     """Update the topics/categories for a document."""
+    # Ensure RAG agent is initialized
+    init_result = await workflow.rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": "vector_store"
+    })
+    
+    if not init_result.get("initialized", False):
+        raise HTTPException(status_code=500, detail="Failed to initialize RAG system")
+    
     # Get current document information
     result = await workflow.rag_agent.run({"command": "info"})
     
@@ -398,6 +449,15 @@ async def categorize_document(
 @app.post("/query")
 async def query_documents(query_input: QueryInput):
     """Query the RAG system."""
+    # Initialize RAG agent if needed
+    init_result = await workflow.rag_agent.run({
+        "command": "initialize",
+        "vector_store_dir": "vector_store"
+    })
+    
+    if not init_result.get("initialized", False):
+        raise HTTPException(status_code=500, detail="Failed to initialize RAG system")
+    
     # Process query through RAG agent
     result = await workflow.rag_agent.run({
         "command": "query",
