@@ -710,13 +710,12 @@ class WriterAgent(BaseAgent):
             self.logger.warning(f"Unknown section type: {section_name}")
             return None
     
-    async def generate_sections_concurrently(self, company: str, template: ReportTemplate, 
-                                           state: Dict[str, Any]) -> Dict[str, str]:
-        self.logger.info(f"Generating all report sections using template: {template.name}")
-        
+    async def _update_template_variables(self, company: str, template: ReportTemplate, state: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+        """Update template variables with state data and ensure events are selected"""
         research_results = state.get("research_results", {})
         event_metadata = state.get("event_metadata", {})
         
+        # Select top events if not already done
         if "top_events" not in state or "other_events" not in state:
             top_events, other_events = self._select_top_events(
                 research_results, event_metadata, max_detailed_events=6
@@ -724,25 +723,36 @@ class WriterAgent(BaseAgent):
             state["top_events"] = top_events
             state["other_events"] = other_events
             self.logger.info(f"Selected {len(top_events)} top events and {len(other_events)} other events")
-            
+        else:
+            top_events = state["top_events"]
+            other_events = state["other_events"]
+        
+        # Update template variables
         template.variables.update({
             "company": company,
-            "top_events": state.get("top_events", []),
-            "other_events": state.get("other_events", []),
+            "top_events": top_events,
+            "other_events": other_events,
             "total_events": len(research_results),
             "corporate_results": state.get("corporate_results", {}),
             "youtube_results": state.get("youtube_results", {})
         })
         
-        sections = {}
+        return top_events, other_events
+        
+    async def _create_section_tasks(self, company: str, template: ReportTemplate, state: Dict[str, Any]) -> List[asyncio.Task]:
+        """Create tasks for generating each section concurrently"""
         semaphore = asyncio.Semaphore(self.max_concurrent_sections)
         
         async def generate_with_semaphore(section_name, section_template):
             async with semaphore:
-                section_content = await self.generate_section_concurrently(
-                    company, section_name, section_template, state
-                )
-                return section_name, section_content
+                try:
+                    section_content = await self.generate_section_concurrently(
+                        company, section_name, section_template, state
+                    )
+                    return section_name, section_content
+                except Exception as e:
+                    self.logger.error(f"Error generating section {section_name}: {str(e)}")
+                    return section_name, None
         
         tasks = []
         for section in template.sections:
@@ -754,18 +764,34 @@ class WriterAgent(BaseAgent):
                 generate_with_semaphore(section_name, section)
             )
             tasks.append(task)
+            
+        return tasks
+    
+    async def generate_sections_concurrently(self, company: str, template: ReportTemplate, 
+                                           state: Dict[str, Any]) -> Dict[str, str]:
+        """Generate all report sections concurrently with improved resource management"""
+        self.logger.info(f"Generating all report sections using template: {template.name}")
         
-        for task in asyncio.as_completed(tasks):
+        # Update template variables and ensure events are selected
+        await self._update_template_variables(company, template, state)
+        
+        # Create tasks for generating each section
+        section_tasks = await self._create_section_tasks(company, template, state)
+        
+        # Process completed sections as they finish
+        sections = {}
+        for task in asyncio.as_completed(section_tasks):
             try:
                 section_name, section_content = await task
                 if section_content:
                     sections[section_name] = section_content
                     self.report_sections[section_name] = section_content
             except Exception as e:
-                self.logger.error(f"Error in section generation task: {str(e)}")
+                self.logger.error(f"Error processing section task result: {str(e)}")
                 # Continue with other sections even if one fails
-                continue
         
+        # Log completion summary
+        self.logger.info(f"Generated {len(sections)}/{len(section_tasks)} sections successfully")
         return sections
     
     async def save_debug_report(self, company: str, full_report: str) -> str:

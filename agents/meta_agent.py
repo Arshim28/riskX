@@ -666,20 +666,12 @@ class MetaAgent(BaseAgent):
             
         return recovery_attempted, state
     
-    async def manage_workflow(self, state: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
-        """Manage workflow execution with improved error handling"""
-        # Initialize agent tasks if not already done
-        if not self.agent_tasks:
-            await self.initialize_agent_tasks(state)
-        
-        # Generate and save workflow status
-        status = await self.generate_workflow_status(state)
-        await self.save_workflow_status(state, status)
-        
+    async def check_workflow_status(self, state: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        """Check workflow status and handle completion or stalled state"""
         # Check if workflow is complete
         if await self.is_workflow_complete():
             self.logger.info("Workflow complete")
-            return state, "END"
+            return True, "END", state
         
         # Check if workflow is stalled and attempt recovery if needed
         if await self.is_workflow_stalled():
@@ -690,25 +682,53 @@ class MetaAgent(BaseAgent):
             
             if recovery_success:
                 self.logger.info("Recovery successful, continuing workflow")
-                state = updated_state
+                return False, "", updated_state
             else:
                 # If recovery failed, end the workflow
                 self.logger.error("Recovery failed, ending workflow")
-                return {**state, "error": f"Workflow stalled and recovery failed: {self.last_error}"}, "END"
+                error_state = {**state, "error": f"Workflow stalled and recovery failed: {self.last_error}"}
+                return True, "END", error_state
         
+        return False, "", state
+        
+    async def determine_next_agent(self, state: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """Determine the next agent to run"""
         # Get next agents to run
         next_agents = await self.get_next_agents()
         
         if not next_agents:
             self.logger.info(f"Waiting for {len(self.running_agents)} running agents to complete")
-            return state, "WAIT"
+            return "WAIT", state
         
         # Update status of next agent to RUNNING
         next_agent = next_agents[0]
         await self.update_agent_status(next_agent, "RUNNING")
         
         self.logger.info(f"Next agent to run: {next_agent}")
-        return state, next_agent
+        return next_agent, state
+    
+    async def manage_workflow(self, state: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+        """Manage workflow execution with improved error handling"""
+        # Initialize agent tasks if not already done
+        if not self.agent_tasks:
+            await self.initialize_agent_tasks(state)
+        
+        # Generate and save workflow status
+        status = await self.generate_workflow_status(state)
+        await self.save_workflow_status(state, status)
+        
+        # Check workflow completion or stalled state
+        is_terminal, terminal_state, updated_state = await self.check_workflow_status(state)
+        if is_terminal:
+            return updated_state, terminal_state
+        
+        # State may have been updated during recovery
+        state = updated_state
+        
+        # Determine next agent to run
+        next_step, state = await self.determine_next_agent(state)
+        
+        return state, next_step
     
     async def merge_agent_results(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Merge results from agent executions into the main state"""

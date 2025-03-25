@@ -499,3 +499,29 @@ async def test_integrate_analysis_results(agent):
     assert "entity_network" in agent.current_template.variables
     assert "timeline" in agent.current_template.variables
     assert "company_analysis" in agent.current_template.variables
+
+@pytest.mark.asyncio
+async def test_update_template_variables_and_create_section_tasks(agent, state, template):
+    # Create the template object
+    template_obj = MagicMock()
+    template_obj.name = template["name"]
+    template_obj.sections = template["sections"]
+    template_obj.variables = template["variables"]
+    template_obj.metadata = template["metadata"]
+    
+    # Test _update_template_variables
+    with patch.object(agent, "_select_top_events", return_value=(["Event 1"], ["Event 2"])):
+        top_events, other_events = await agent._update_template_variables("Test Company", template_obj, state)
+        
+        assert top_events == ["Event 1"]
+        assert other_events == ["Event 2"]
+        assert template_obj.variables["company"] == "Test Company"
+        assert template_obj.variables["top_events"] == ["Event 1"]
+        assert template_obj.variables["other_events"] == ["Event 2"]
+    
+    # Test _create_section_tasks
+    with patch.object(agent, "generate_section_concurrently", AsyncMock(return_value="Section content")):
+        tasks = await agent._create_section_tasks("Test Company", template_obj, state)
+        
+        assert len(tasks) > 0
+        assert all(isinstance(task, asyncio.Task) for task in tasks)

@@ -481,10 +481,8 @@ class AnalystAgent(BaseAgent):
         self.logger.info(f"Successfully generated comprehensive analysis for {company}")
         return analysis
     
-    async def process_event(self, company: str, event_name: str, articles: List) -> Tuple[List[Dict], Dict]:
-        self.logger.info(f"Processing event: {event_name} with {len(articles)} articles")
-        self.result_tracker["events_analyzed"].add(event_name)
-        
+    async def create_tasks_for_event(self, company: str, event_name: str, articles: List) -> List[AnalysisTask]:
+        """Create analysis tasks for an event's articles"""
         tasks = []
         for i, article in enumerate(articles):
             task = AnalysisTask(
@@ -495,35 +493,53 @@ class AnalystAgent(BaseAgent):
                 total_articles=len(articles)
             )
             tasks.append(task)
-            
+        return tasks
+        
+    async def extract_timeline_from_synthesis(self, event_name: str, event_synthesis: Dict) -> List[Dict]:
+        """Extract timeline items from event synthesis and normalize them"""
+        timeline_items = []
+        if event_synthesis and "timeline" in event_synthesis:
+            for timeline_item in event_synthesis.get("timeline", []):
+                if "date" in timeline_item and timeline_item["date"] != "Unknown":
+                    timeline_item["event"] = event_name
+                    timeline_items.append(timeline_item)
+        return timeline_items
+    
+    async def process_event(self, company: str, event_name: str, articles: List) -> Tuple[List[Dict], Dict]:
+        """Process all articles for an event and generate synthesis"""
+        self.logger.info(f"Processing event: {event_name} with {len(articles)} articles")
+        self.result_tracker["events_analyzed"].add(event_name)
+        
+        # Create tasks for all articles
+        tasks = await self.create_tasks_for_event(company, event_name, articles)
+        
+        # Process tasks in batches
         all_insights = []
         for i in range(0, len(tasks), self.batch_size):
             batch = tasks[i:i+self.batch_size]
             batch_insights = await self.process_articles_batch(batch)
             all_insights.extend(batch_insights)
             
-        if all_insights:
-            self.logger.info(f"Collected {len(all_insights)} insights for event: {event_name}")
-            self.knowledge_base["events"][event_name] = all_insights
-            self.processing_stats["events_with_insights"] += 1
-            
-            event_synthesis = await self.synthesize_event_insights(company, event_name, all_insights)
-            
-            if event_synthesis and "timeline" in event_synthesis:
-                timeline_items = []
-                for timeline_item in event_synthesis.get("timeline", []):
-                    if "date" in timeline_item and timeline_item["date"] != "Unknown":
-                        timeline_item["event"] = event_name
-                        timeline_items.append(timeline_item)
-                
-                if timeline_items:
-                    self.knowledge_base["timeline"].extend(timeline_items)
-                    self.result_tracker["timelines_created"][event_name] = len(timeline_items)
-            
-            return all_insights, event_synthesis
-        else:
+        # If no insights were found, return early
+        if not all_insights:
             self.logger.info(f"No insights collected for event: {event_name}")
             return [], None
+            
+        # Process collected insights
+        self.logger.info(f"Collected {len(all_insights)} insights for event: {event_name}")
+        self.knowledge_base["events"][event_name] = all_insights
+        self.processing_stats["events_with_insights"] += 1
+        
+        # Generate synthesis for the event
+        event_synthesis = await self.synthesize_event_insights(company, event_name, all_insights)
+        
+        # Extract and process timeline items
+        timeline_items = await self.extract_timeline_from_synthesis(event_name, event_synthesis)
+        if timeline_items:
+            self.knowledge_base["timeline"].extend(timeline_items)
+            self.result_tracker["timelines_created"][event_name] = len(timeline_items)
+        
+        return all_insights, event_synthesis
     
     async def process_events_concurrently(self, company: str, research_results: Dict) -> Dict[str, Dict]:
         event_synthesis = {}

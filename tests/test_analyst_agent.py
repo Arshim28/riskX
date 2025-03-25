@@ -174,7 +174,14 @@ async def test_extract_forensic_insights(agent, forensic_insights):
     # Patch the get_llm_provider in the analyst_agent namespace so the agent uses our mock
     get_llm_mock = AsyncMock(return_value=llm_mock)
     
-    with patch("agents.analyst_agent.get_llm_provider", get_llm_mock):
+    # Mock postgres tool to handle the database operations
+    postgres_mock = AsyncMock()
+    postgres_mock.return_value.success = True
+    agent.postgres_tool.run = postgres_mock
+    
+    with patch("agents.analyst_agent.get_llm_provider", get_llm_mock), \
+         patch.object(agent, "_track_entity", MagicMock()):  # Mock entity tracking
+        
         # Use a longer content string to pass the minimum length check in the method
         long_content = (
             "This is article content with enough characters to pass the minimum length check. "
@@ -199,9 +206,8 @@ async def test_extract_forensic_insights(agent, forensic_insights):
         # Verify LLM was called twice
         assert llm_mock.generate_text.call_count == 2
         
-        # Skip postgres tool verification in this test
-        # The postgres_tool.run is an async method decorated with retry
-        pass
+        # Verify postgres was called to store insights
+        assert postgres_mock.called
 
 @pytest.mark.asyncio
 async def test_get_optimal_concurrency(agent):

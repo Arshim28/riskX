@@ -13,7 +13,6 @@ ocr:
   image_limit: 15
   include_image_base64: true
 
-
 embedding:
   provider: "google"
   model: "gemini-embedding-exp-03-07"
@@ -44,3 +43,29 @@ rag_agent:
   reranking_enabled: false
   prompt_template: "prompts/rag_agent/qa_template.txt"
   max_input_tokens: 4000
+  retry_operations:
+    add_document: {max_attempts: 3, min_wait: 2, max_wait: 10}
+    query: {max_attempts: 3, min_wait: 2, max_wait: 15}
+    categorize: {max_attempts: 2, min_wait: 1, max_wait: 5}
+
+forensic_analysis:
+  max_workers: 5
+  batch_size: 10
+  concurrent_events: 2
+  task_timeout: 300
+  evidence_strength: 3
+  model: "gemini-2.0-pro"
+
+workflow:
+  max_parallel_agents: 3
+  max_iterations: 3
+  analyst_pool_size: 5
+  checkpointing: true
+  checkpoint_interval: 600
+  require_plan_approval: true
+
+retry:
+  max_attempts: 3
+  multiplier: 1
+  min_wait: 2
+  max_wait: 10

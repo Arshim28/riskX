@@ -158,33 +158,8 @@ class RAGAgent(BaseAgent):
             self.logger.error(f"Failed to save vector store: {result.error}")
             return False
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def answer_query(self, query: str, session_id: Optional[str] = None, 
-                        filter_topics: Optional[List[str]] = None, k: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Answer a query using the vector store
-        
-        Args:
-            query: The query to answer
-            session_id: Optional session ID for tracking conversations
-            filter_topics: Optional list of topics to filter documents by
-            k: Optional number of results to return (defaults to self.retrieval_k)
-            
-        Returns:
-            Dictionary with query results
-        """
-        if not self.initialized:
-            self.logger.warning("RAG agent not initialized")
-            return {
-                "success": False,
-                "error": "RAG agent not initialized. Please add documents first."
-            }
-            
-        k_value = k if k is not None else self.retrieval_k
-        
-        self.logger.info(f"Processing query: {query}")
-        
-        # Track session questions if session_id provided
+    async def _track_session_query(self, query: str, session_id: Optional[str]) -> None:
+        """Track a query in the session history if session_id is provided"""
         if session_id:
             self.last_session_id = session_id
             if session_id not in self.session_questions:
@@ -193,8 +168,9 @@ class RAGAgent(BaseAgent):
                 "query": query,
                 "timestamp": datetime.now().isoformat()
             })
-        
-        # Prepare retrieval parameters
+            
+    async def _prepare_retrieval_params(self, k_value: int, filter_topics: Optional[List[str]]) -> Dict[str, Any]:
+        """Prepare parameters for vector store retrieval"""
         retrieval_params = {"k": k_value}
         
         # Filter by topics if provided
@@ -207,22 +183,68 @@ class RAGAgent(BaseAgent):
             # Add filter parameter even if the list is empty
             retrieval_params["filter_docs"] = filtered_docs
             self.logger.info(f"Filtering retrieval to {len(filtered_docs)} documents from topics: {filter_topics}")
+            
+        return retrieval_params
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def answer_query(self, query: str, session_id: Optional[str] = None, 
+                        filter_topics: Optional[List[str]] = None, k: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Answer a query using the vector store with improved error handling and modularity
         
-        # Execute query against vector store
-        result = await self.vector_store_tool.run(
-            command="answer_question", 
-            question=query,
-            **retrieval_params
-        )
-        
-        if result.success:
-            return result.data
-        else:
-            self.logger.error(f"Query processing failed: {result.error}")
+        Args:
+            query: The query to answer
+            session_id: Optional session ID for tracking conversations
+            filter_topics: Optional list of topics to filter documents by
+            k: Optional number of results to return (defaults to self.retrieval_k)
+            
+        Returns:
+            Dictionary with query results
+        """
+        # Check initialization status
+        if not self.initialized:
+            self.logger.warning("RAG agent not initialized")
             return {
                 "success": False,
-                "error": f"Query processing failed: {result.error}"
+                "error": "RAG agent not initialized. Please add documents first."
             }
+            
+        # Check document availability
+        if not self.loaded_documents:
+            self.logger.warning("No documents loaded in RAG agent")
+            return {
+                "success": False,
+                "error": "No documents loaded. Please add documents first."
+            }
+            
+        k_value = k if k is not None else self.retrieval_k
+        self.logger.info(f"Processing query: {query}")
+        
+        # Track this query in session history
+        await self._track_session_query(query, session_id)
+        
+        # Prepare retrieval parameters
+        retrieval_params = await self._prepare_retrieval_params(k_value, filter_topics)
+        
+        try:
+            # Execute query against vector store
+            result = await self.vector_store_tool.run(
+                command="answer_question", 
+                question=query,
+                **retrieval_params
+            )
+            
+            if result.success:
+                return result.data
+            else:
+                error_msg = f"Query processing failed: {result.error}"
+                self.logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+                
+        except Exception as e:
+            error_msg = f"Unexpected error during query processing: {str(e)}"
+            self.logger.error(error_msg)
+            return {"success": False, "error": error_msg}
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_response(self, query: str, retrieval_results: Dict[str, Any], 

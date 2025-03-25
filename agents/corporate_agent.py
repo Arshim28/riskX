@@ -49,15 +49,16 @@ class CorporateAgent(BaseAgent):
         self.retry_min_wait = config.get("retry", {}).get("min_wait", 2)
         self.retry_max_wait = config.get("retry", {}).get("max_wait", 10)
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def get_company_symbol(self, company_name: str) -> str:
-        if hasattr(self.nse_tool, 'config') and hasattr(self.nse_tool.config, 'symbol') and self.nse_tool.config.symbol:
-            symbol = self.nse_tool.config.symbol
-            self.logger.info(f"Using symbol {symbol} from NSE tool config for company: {company_name}")
-            return symbol
+    async def _get_symbol_from_config(self) -> Optional[str]:
+        """Get symbol from NSE tool config if available"""
+        if (hasattr(self.nse_tool, 'config') and 
+            hasattr(self.nse_tool.config, 'symbol') and 
+            self.nse_tool.config.symbol):
+            return self.nse_tool.config.symbol
+        return None
         
-        self.logger.info(f"Looking up symbol for company: {company_name}")
-        
+    async def _get_symbol_from_database(self, company_name: str) -> Optional[str]:
+        """Try to retrieve company symbol from database"""
         try:
             query = "SELECT symbol FROM nse_metadata WHERE name = $1"
             result = await self.postgres_tool.run(
@@ -69,14 +70,32 @@ class CorporateAgent(BaseAgent):
             if result.success and result.data and len(result.data) > 0:
                 symbol = result.data[0].get('symbol')
                 if symbol:
-                    self.logger.info(f"Found symbol {symbol} for company: {company_name}")
                     return symbol
-            
-            self.logger.warning(f"Symbol not found for company: {company_name}, using company name as symbol")
-            return company_name
+            return None
         except Exception as e:
-            self.logger.error(f"Error retrieving symbol for company {company_name}: {str(e)}")
-            return company_name
+            self.logger.error(f"Database error retrieving symbol for {company_name}: {str(e)}")
+            return None
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def get_company_symbol(self, company_name: str) -> str:
+        """Get company symbol with multiple fallback mechanisms"""
+        # Try to get symbol from config first
+        symbol = await self._get_symbol_from_config()
+        if symbol:
+            self.logger.info(f"Using symbol {symbol} from NSE tool config for company: {company_name}")
+            return symbol
+        
+        self.logger.info(f"Looking up symbol for company: {company_name}")
+        
+        # Try to get symbol from database
+        symbol = await self._get_symbol_from_database(company_name)
+        if symbol:
+            self.logger.info(f"Found symbol {symbol} for company: {company_name}")
+            return symbol
+        
+        # Fallback to using company name as symbol
+        self.logger.warning(f"Symbol not found for company: {company_name}, using company name as symbol")
+        return company_name
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_corporate_governance_data(self, symbol: str) -> Dict[str, Any]:
@@ -154,7 +173,42 @@ class CorporateAgent(BaseAgent):
                 "timestamp": datetime.now().isoformat()
             }
     
+    def _validate_stream_config(self, config: Dict[str, Dict[str, Any]]) -> bool:
+        """Validate if the stream config has the required fields"""
+        if not config:
+            return False
+            
+        # Check if config has at least one stream with required fields
+        for stream, stream_config in config.items():
+            if not isinstance(stream_config, dict):
+                self.logger.warning(f"Invalid stream config for {stream}: not a dictionary")
+                continue
+                
+            # Check if stream has 'active' field as minimum requirement
+            if 'active' not in stream_config:
+                self.logger.warning(f"Stream config for {stream} missing 'active' field")
+                continue
+                
+            # Found at least one valid stream
+            return True
+            
+        return False
+        
+    def _apply_date_params(self, config: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Apply default date parameters to streams that need them"""
+        for stream, stream_config in config.items():
+            # Check if stream config has input_params
+            if 'input_params' in stream_config and stream_config['input_params']:
+                # Check if any date parameters are needed
+                params = stream_config['input_params']
+                if any(param in params for param in ['from_date', 'to_date']):
+                    # Apply default date parameters
+                    stream_config['input_params'] = self.default_date_params
+                    
+        return config
+    
     def _get_default_stream_config(self) -> Dict[str, Dict[str, Any]]:
+        """Get default stream configuration with validation and date parameter handling"""
         default_config_path = 'assets/default_stream_config.yaml'
         
         if not os.path.exists(default_config_path):
@@ -165,12 +219,17 @@ class CorporateAgent(BaseAgent):
             with open(default_config_path, 'r') as file:
                 config = yaml.safe_load(file)
                 
-                for stream, stream_config in config.items():
-                    if 'input_params' in stream_config and stream_config['input_params'] and any(param in stream_config['input_params'] for param in ['from_date', 'to_date']):
-                        stream_config['input_params'] = self.default_date_params
+                # Validate the config
+                if not self._validate_stream_config(config):
+                    self.logger.error("Stream config validation failed, using empty config")
+                    return {}
                 
-                self.logger.info(f"Loaded default stream config from {default_config_path}")
+                # Apply date parameters to streams that need them
+                config = self._apply_date_params(config)
+                
+                self.logger.info(f"Loaded default stream config from {default_config_path} with {len(config)} streams")
                 return config
+                
         except Exception as e:
             self.logger.error(f"Failed to load default stream config from file: {str(e)}")
             return {}

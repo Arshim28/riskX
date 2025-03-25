@@ -498,16 +498,17 @@ async def test_manage_workflow_success_case(agent, state):
     # Mock dependencies
     agent.generate_workflow_status = AsyncMock(return_value={})
     agent.save_workflow_status = AsyncMock()
-    agent.is_workflow_complete = AsyncMock(return_value=False)
-    agent.is_workflow_stalled = AsyncMock(return_value=False)
-    agent.get_next_agents = AsyncMock(return_value=["research_agent"])
-    agent.update_agent_status = AsyncMock()
+    agent.check_workflow_status = AsyncMock(return_value=(False, "", state))
+    agent.determine_next_agent = AsyncMock(return_value=("research_agent", state))
     
     # Run manage_workflow
     updated_state, next_step = await agent.manage_workflow(state)
     
     assert next_step == "research_agent"
-    assert agent.update_agent_status.called
+    assert agent.generate_workflow_status.called
+    assert agent.save_workflow_status.called
+    assert agent.check_workflow_status.called
+    assert agent.determine_next_agent.called
 
 @pytest.mark.asyncio
 async def test_manage_workflow_complete_case(agent, state):
@@ -530,16 +531,14 @@ async def test_manage_workflow_stalled_with_recovery(agent, state):
     # Mock dependencies
     agent.generate_workflow_status = AsyncMock(return_value={})
     agent.save_workflow_status = AsyncMock()
-    agent.is_workflow_complete = AsyncMock(return_value=False)
-    agent.is_workflow_stalled = AsyncMock(return_value=True)
-    agent.attempt_recovery = AsyncMock(return_value=(True, state))
-    agent.get_next_agents = AsyncMock(return_value=["research_agent"])
-    agent.update_agent_status = AsyncMock()
+    # Simulate stalled workflow that recovers successfully
+    agent.check_workflow_status = AsyncMock(return_value=(False, "", state))
+    agent.determine_next_agent = AsyncMock(return_value=("research_agent", state))
     
     # Run manage_workflow
     updated_state, next_step = await agent.manage_workflow(state)
     
-    assert agent.attempt_recovery.called
+    assert agent.check_workflow_status.called
     assert next_step == "research_agent"
 
 @pytest.mark.asyncio
