@@ -644,8 +644,13 @@ class RAGAgent(BaseAgent):
                     return {
                         **state,
                         "goto": state.get("goto", "END"),
-                        "rag_status": "ERROR",
-                        "error": "No documents loaded. Please add documents first."
+                        "rag_status": "NO_DOCUMENTS",
+                        "retrieval_results": {
+                            "success": False,
+                            "message": "No documents loaded in vector store"
+                        },
+
+                        "response": f"No document-based information is available about {query}"
                     }
                 
                 retrieval_results = await self.answer_query(

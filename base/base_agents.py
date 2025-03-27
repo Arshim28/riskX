@@ -182,21 +182,31 @@ class BaseAgent(ABC):
         """Validate input state and convert to AgentState object."""
         return self._create_state(state)
     
-    def _log_start(self, state: AgentState) -> None:
-        """Log the start of agent execution with state information."""
-        state_str = json.dumps({k: v for k, v in state.items() 
-                                if k not in ["company", "industry"]})
-        self.logger.info(f"Starting {self.name} for {state['company']} with state: {state_str}")
-    
-    def _log_completion(self, state: AgentState) -> None:
-        """Log the completion of agent execution with metrics."""
-        updates = {k: v for k, v in state.items() 
-                   if k not in ["company", "industry"]}
+    def _log_start(self, state: Dict[str, Any]) -> None:
+        """Log the start of agent execution with state info."""
+        state_copy = {k: v for k, v in state.items() if k not in ["goto"]}
+        state_str = json.dumps(state_copy, default=str)[:500] + "..." if len(json.dumps(state_copy, default=str)) > 500 else json.dumps(state_copy, default=str)
+        
+        # Handle missing company key gracefully
+        company = state.get('company', 'Unknown')
+        self.logger.info(f"Starting {self.name} for {company} with state: {state_str}")  
+          
+    def _log_completion(self, state: Dict[str, Any]) -> None:
+        """Log completion of this agent's execution."""
+        company = state.get('company', 'Unknown')
+        updates = state.get('goto', 'Unknown')
+        
+        # Check if metrics attribute exists before trying to access it
+        execution_time_msg = ""
+        if hasattr(self, 'metrics') and hasattr(self.metrics, 'execution_time_ms'):
+            execution_time_msg = f"{self.metrics.execution_time_ms:.2f}ms"
+        else:
+            execution_time_msg = "unknown time"
+        
         self.logger.info(
-            f"Completed {self.name} for {state['company']} in "
-            f"{self.metrics.execution_time_ms:.2f}ms with updates: {json.dumps(updates)}"
-        )
-    
+            f"Completed {self.name} for {company} in "
+            f"{execution_time_msg} with updates: {json.dumps(updates)}"
+        )    
     def _log_error(self, error: Exception, state: AgentState) -> None:
         """Log an error that occurred during agent execution."""
         self.logger.error(

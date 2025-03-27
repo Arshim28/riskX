@@ -101,16 +101,25 @@ class YouTubeAgent(BaseAgent):
     
     def _parse_json_response(self, response: str, context: str = "response") -> Dict[str, Any]:
         """Parse JSON response with better error handling."""
+        if not response:
+            error_msg = f"Empty {context} received"
+            self.logger.error(error_msg)
+            raise YouTubeDataError(error_msg)
+            
         try:
             # Clean response if it contains markdown code blocks
             if "```json" in response:
                 response = response.split("```json", 1)[1].split("```", 1)[0]
             elif "```" in response:
                 response = response.split("```", 1)[1].split("```", 1)[0]
-                
+                    
             return json.loads(response.strip())
         except json.JSONDecodeError as e:
             error_msg = f"Failed to parse {context} JSON: {str(e)}"
+            self.logger.error(error_msg)
+            raise YouTubeDataError(error_msg)
+        except Exception as e:
+            error_msg = f"Unexpected error parsing {context}: {str(e)}"
             self.logger.error(error_msg)
             raise YouTubeDataError(error_msg)
     
@@ -229,6 +238,11 @@ class YouTubeAgent(BaseAgent):
                 
                 transcript = transcript_result.data.get("transcript")
                 
+                # Defensive check for transcript type
+                if transcript is None:
+                    self.logger.warning(f"No transcript data received for video {video_id}")
+                    return None
+                    
                 # Sanitize the transcript
                 sanitized_transcript = self._sanitize_transcript(transcript)
                 
@@ -312,14 +326,36 @@ class YouTubeAgent(BaseAgent):
                     model_name=self.config.get("models", {}).get("analysis")
                 )
                 
-                analysis_result = self._parse_json_response(response, f"transcript analysis for {video_data.video_id}")
+                # Add defensive check for empty response
+                if not response:
+                    self.logger.warning(f"Empty analysis response received for video {video_data.video_id}")
+                    return {
+                        "forensic_relevance": "unknown",
+                        "red_flags": [],
+                        "summary": "Analysis failed due to empty response",
+                        "video_id": video_data.video_id,
+                        "title": video_data.title
+                    }
                 
-                # Validate required fields
-                self._validate_result(
-                    analysis_result,
-                    ["forensic_relevance", "red_flags", "summary"],
-                    "transcript analysis"
-                )
+                try:
+                    analysis_result = self._parse_json_response(response, f"transcript analysis for {video_data.video_id}")
+                except YouTubeDataError as e:
+                    self.logger.warning(f"Error parsing analysis response: {str(e)}")
+                    return {
+                        "forensic_relevance": "unknown",
+                        "red_flags": [],
+                        "summary": f"Error analyzing transcript: {str(e)}",
+                        "video_id": video_data.video_id,
+                        "title": video_data.title
+                    }
+                
+                # Validate required fields with default values if missing
+                if not isinstance(analysis_result, dict):
+                    analysis_result = {}
+                    
+                analysis_result["forensic_relevance"] = analysis_result.get("forensic_relevance", "unknown")
+                analysis_result["red_flags"] = analysis_result.get("red_flags", [])
+                analysis_result["summary"] = analysis_result.get("summary", "No summary available")
                 
                 # Add video metadata to the result
                 analysis_result["video_id"] = video_data.video_id
@@ -777,18 +813,26 @@ class YouTubeAgent(BaseAgent):
                         transcript_errors.append(error_msg)
                         # Continue with other videos
                 
-                # Analyze transcripts
+                # Analyze transcripts - only for videos that have transcripts
                 analysis_tasks = []
                 for video_data in batch:
                     if video_data.transcript:
-                        task = asyncio.create_task(self.analyze_transcript(video_data, company))
-                        analysis_tasks.append((video_data, task))
+                        try:
+                            # Use create_task to handle exceptions properly
+                            task = asyncio.create_task(self.analyze_transcript(video_data, company))
+                            analysis_tasks.append((video_data, task))
+                        except Exception as e:
+                            error_msg = f"Error creating analysis task for video {video_data.video_id}: {str(e)}"
+                            self.logger.error(error_msg)
+                            analysis_errors.append(error_msg)
                 
                 for video_data, task in analysis_tasks:
                     try:
                         analysis = await task
                         if analysis:
                             self.logger.info(f"Analyzed transcript for video: {video_data.video_id} - Relevance: {analysis.get('forensic_relevance', 'unknown')}")
+                        else:
+                            self.logger.warning(f"No analysis result for video: {video_data.video_id}")
                     except Exception as e:
                         error_msg = f"Error analyzing transcript for video {video_data.video_id}: {str(e)}"
                         self.logger.error(error_msg)
@@ -798,9 +842,23 @@ class YouTubeAgent(BaseAgent):
                 # Pause between batches to avoid rate limits
                 await asyncio.sleep(1)
             
-            # Generate the summary
+            # Generate summary with defensive checks
             try:
-                summary = await self.generate_video_summary(videos_data, company)
+                # Only include videos with valid analysis data in the summary
+                videos_with_analysis = [v for v in videos_data if v.forensic_summary is not None]
+                
+                if not videos_with_analysis:
+                    self.logger.warning(f"No videos with valid analysis available for summary generation")
+                    summary = {
+                        "overall_assessment": "Unknown",
+                        "key_insights": [f"No video analysis available for {company}"],
+                        "red_flags": [],
+                        "notable_videos": [],
+                        "summary": f"No analyzable YouTube content found for {company}."
+                    }
+                else:
+                    summary = await self.generate_video_summary(videos_with_analysis, company)
+                
                 youtube_results["summary"] = summary
                 
                 # Collect red flags

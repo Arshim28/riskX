@@ -12,6 +12,7 @@ from utils.utils import (
     get_timestamp,
     sanitize_filename
 )
+from utils.config_utils import load_config_with_env_vars, get_nested_config
 
 __all__ = [
     'setup_logging',
@@ -31,5 +32,7 @@ __all__ = [
     'init_prompt_manager',
     'get_prompt_manager',
     'load_config',
-    'validate_config'
+    'validate_config',
+    'load_config_with_env_vars',
+    'get_nested_config'
 ]

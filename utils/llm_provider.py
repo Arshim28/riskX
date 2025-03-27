@@ -2,6 +2,7 @@ import os
 import json
 import time
 import enum
+import re
 from typing import Dict, List, Any, Optional, Union, Tuple, Literal, TypeVar, Generic, Callable, Type
 from pydantic import BaseModel, Field, ValidationError, validator
 
@@ -186,14 +187,32 @@ class AdaptiveWaitStrategy(wait_base):
 class LLMProvider:
     def __init__(self, config: Union[Dict[str, Any], LLMProviderConfig]):
         if isinstance(config, dict):
-            self.config = LLMProviderConfig(**config)
+            try:
+                # Handle nested dictionaries within the config
+                if "llm_provider" in config:
+                    self.config = LLMProviderConfig(**config.get("llm_provider", {}))
+                else:
+                    self.config = LLMProviderConfig(**config)
+            except Exception as e:
+                print(f"Error parsing LLM provider config: {str(e)}")
+                # Create default configuration
+                self.config = LLMProviderConfig()
         else:
             self.config = config
             
+        # Set up logging
         self.logger = logging.getLogger("llm_provider")
         self.logger.setLevel(self.config.logging_level)
         
-        self.models: Dict[str, ModelType] = {}
+        # Add a console handler if none exists
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(self.config.logging_level)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+        
+        self.models = {}
         self._init_providers()
         
     def _init_providers(self) -> None:
@@ -203,8 +222,21 @@ class LLMProvider:
             if provider_config.api_key is None:
                 env_var = f"{provider_name.upper()}_API_KEY"
                 provider_config.api_key = os.environ.get(env_var)
+            elif provider_config.api_key.startswith("${") and provider_config.api_key.endswith("}"):
+                # Handle environment variable placeholders like ${VAR_NAME}
+                env_var = provider_config.api_key[2:-1]  # Remove ${ and }
+                provider_config.api_key = os.environ.get(env_var)
                 
-        self.logger.info(f"Initialized LLM provider with {len(self.config.providers)} configured providers")
+            # Validate API keys
+            if not provider_config.api_key:
+                self.logger.warning(f"No API key found for provider '{provider_name}'. "
+                                   f"Set the {provider_name.upper()}_API_KEY environment variable "
+                                   f"or configure it in the config file.")
+                
+        # Log initialization status
+        configured_providers = [p for p, c in self.config.providers.items() if c.api_key]
+        self.logger.info(f"Initialized LLM provider with {len(configured_providers)} configured providers: {configured_providers}")
+        print(f"Initialized LLM provider with {len(configured_providers)} configured providers: {configured_providers}")
     
     def _get_retry_decorator(self):
         """Create a retry decorator based on config."""
@@ -282,10 +314,70 @@ class LLMProvider:
             base_kwargs["base_url"] = config.base_url
             
         # Add any additional configuration
-        base_kwargs.update(config.additional_config)
+        # Need special handling for nested dictionaries
+        additional_config = config.additional_config.copy() if config.additional_config else {}
+        
+        # For each key in additional_config, if it's not a nested structure, add it to base_kwargs
+        for key, value in additional_config.items():
+            if isinstance(value, dict):
+                # For nested dictionaries, we'll handle them specially for each provider
+                continue
+            base_kwargs[key] = value
+        
+        self.logger.info(f"Creating {provider} LLM instance for model {model}")
+        print(f"Creating {provider} LLM instance for model {model}")
         
         try:
             if provider == "google":
+                # Handle safety settings format for Google provider
+                if "safety_settings" in base_kwargs.get("additional_config", {}):
+                    # Extract safety settings and ensure they're formatted correctly
+                    safety_settings = base_kwargs["additional_config"].pop("safety_settings", {})
+                    
+                    # Convert any string keys/values to integers
+                    formatted_safety_settings = {}
+                    for key, value in safety_settings.items():
+                        # Convert key to int if it's a string that can be parsed as int
+                        try:
+                            key_int = int(key) if isinstance(key, str) and key.isdigit() else key
+                        except (ValueError, TypeError):
+                            # Map string harm categories to their integer values
+                            harm_category_map = {
+                                "HARASSMENT": 1,
+                                "HATE_SPEECH": 2,
+                                "SEXUALLY_EXPLICIT": 3,
+                                "DANGEROUS_CONTENT": 4
+                            }
+                            key_int = harm_category_map.get(key, key)
+                        
+                        # Convert value to int if it's a string that can be parsed as int
+                        try:
+                            value_int = int(value) if isinstance(value, str) and value.isdigit() else value
+                        except (ValueError, TypeError):
+                            # Map string threshold values to their integer values
+                            threshold_map = {
+                                "block_none": 0,
+                                "BLOCK_NONE": 0,
+                                "block_low": 1,
+                                "BLOCK_LOW": 1,
+                                "block_medium": 2,
+                                "BLOCK_MEDIUM": 2,
+                                "block_high": 3,
+                                "BLOCK_HIGH": 3,
+                                "block_very_high": 4, 
+                                "BLOCK_VERY_HIGH": 4
+                            }
+                            value_int = threshold_map.get(value, value)
+                            
+                        # Add to formatted safety settings if both key and value are integers
+                        if isinstance(key_int, int) and isinstance(value_int, int):
+                            formatted_safety_settings[key_int] = value_int
+                    
+                    # Set the formatted safety settings
+                    if formatted_safety_settings:
+                        base_kwargs["safety_settings"] = formatted_safety_settings
+                        print(f"Configured safety settings for Google provider: {formatted_safety_settings}")
+                    
                 return ChatGoogleGenerativeAI(**base_kwargs)
                 
             elif provider == "anthropic":
@@ -373,19 +465,41 @@ class LLMProvider:
         
         # Get provider config
         if selected_provider not in self.config.providers:
-            raise ValueError(f"Provider '{selected_provider}' not configured")
+            error_msg = f"Provider '{selected_provider}' not configured"
+            self.logger.error(error_msg)
+            print(f"ERROR: {error_msg}")
+            print(f"Available providers: {list(self.config.providers.keys())}")
+            raise ValueError(error_msg)
             
         provider_config = self.config.providers[selected_provider]
+        
+        # Check if the provider has a valid API key
+        if not provider_config.api_key:
+            error_msg = f"No API key available for provider '{selected_provider}'"
+            self.logger.error(error_msg)
+            print(f"ERROR: {error_msg}")
+            print(f"Please set the {selected_provider.upper()}_API_KEY environment variable")
+            raise AuthenticationError(error_msg)
         
         # Determine model to use
         selected_model = model or self.config.default_model or provider_config.default_model
         
+        # Check if the model is specified
+        if not selected_model:
+            error_msg = f"No model specified for provider '{selected_provider}'"
+            self.logger.error(error_msg)
+            print(f"ERROR: {error_msg}")
+            raise ValueError(error_msg)
+        
         # Check cache
         model_key = f"{selected_provider}:{selected_model}"
         if model_key in self.models:
+            self.logger.debug(f"Using cached LLM instance for {model_key}")
             return self.models[model_key]
         
         # Create new LLM instance
+        self.logger.info(f"Creating new LLM instance for {model_key}")
+        print(f"Creating new LLM instance for {model_key}")
         llm = self._create_llm(selected_provider, selected_model, provider_config)
         self.models[model_key] = llm
         
@@ -529,6 +643,8 @@ class LLMProvider:
                 model_info = getattr(llm, "model", getattr(llm, "model_name", "unknown"))
                 
                 # Invoke the model
+                self.logger.info(f"Calling {provider_info} with model {model_info}")
+                print(f"Calling {provider_info} with model {model_info}")
                 response = llm.invoke(std_messages)
                 
                 # Get the content
@@ -651,17 +767,103 @@ class LLMProvider:
         else:
             raise ResponseValidationError(f"Failed to generate a valid structured response after {max_attempts} attempts")
 
+
+# Global provider instance
 _provider_instance = None
 
 def init_llm_provider(config: Dict[str, Any]) -> LLMProvider:
     """Initialize the global LLM provider instance."""
     global _provider_instance
-    _provider_instance = LLMProvider(config)
-    return _provider_instance
+    
+    # Log the configuration
+    config_str = str(config)
+    if len(config_str) > 500:
+        config_str = config_str[:500] + "..."
+    print(f"Initializing LLM provider with config: {config_str}")
+    
+    # Process environment variables in the config
+    def process_env_vars(value):
+        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+            env_var = value[2:-1]  # Remove ${ and }
+            return os.environ.get(env_var)
+        return value
+
+    def process_config(config_dict):
+        if not isinstance(config_dict, dict):
+            return config_dict
+            
+        processed = {}
+        for key, value in config_dict.items():
+            if isinstance(value, dict):
+                processed[key] = process_config(value)
+            elif isinstance(value, list):
+                processed[key] = [process_config(item) if isinstance(item, dict) else process_env_vars(item) for item in value]
+            else:
+                processed[key] = process_env_vars(value)
+        return processed
+        
+    # Process any environment variables in the config
+    if isinstance(config, dict):
+        config = process_config(config)
+    
+    try:
+        _provider_instance = LLMProvider(config)
+        print(f"LLM provider initialized with {len(_provider_instance.config.providers)} providers")
+        return _provider_instance
+    except Exception as e:
+        print(f"Error initializing LLM provider: {str(e)}")
+        # Create a minimal working provider as fallback
+        try:
+            # Try to create a minimal configuration with available environment variables
+            fallback_config = {
+                "default_provider": "google", 
+                "providers": {}
+            }
+            
+            # Try to get API keys from environment
+            for provider in ["google", "anthropic", "openai"]:
+                api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+                if api_key:
+                    fallback_config["providers"][provider] = {
+                        "api_key": api_key,
+                        "default_model": "gemini-2.0-flash" if provider == "google" else 
+                                        "claude-3-sonnet-20240229" if provider == "anthropic" else
+                                        "gpt-4-0125-preview"
+                    }
+            
+            if not fallback_config["providers"]:
+                print("WARNING: No API keys found in environment variables. LLM provider initialization will fail.")
+                
+            print(f"Using fallback configuration with providers: {list(fallback_config['providers'].keys())}")
+            _provider_instance = LLMProvider(fallback_config)
+            return _provider_instance
+        except Exception as fallback_error:
+            print(f"Failed to create fallback LLM provider: {str(fallback_error)}")
+            # Create an empty provider that will raise appropriate errors when used
+            _provider_instance = LLMProvider({"providers": {}})
+            return _provider_instance
 
 async def get_llm_provider() -> LLMProvider:
     """Get the global LLM provider instance."""
     global _provider_instance
     if _provider_instance is None:
-        raise RuntimeError("LLM Provider not initialized. Call init_llm_provider first.")
+        print("WARNING: LLM Provider not initialized. Creating a default instance.")
+        # Try to create a default instance
+        _provider_instance = LLMProvider({
+            "default_provider": "google",
+            "providers": {}
+        })
+        
+        # Check if any API keys are available in environment variables
+        for provider in ["google", "anthropic", "openai"]:
+            api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+            if api_key:
+                print(f"Found {provider.upper()}_API_KEY in environment variables")
+                _provider_instance.config.providers[provider] = ProviderConfig(
+                    api_key=api_key,
+                    default_model="gemini-2.0-flash" if provider == "google" else 
+                                "claude-3-sonnet-20240229" if provider == "anthropic" else
+                                "gpt-4-0125-preview"
+                )
+        
     return _provider_instance

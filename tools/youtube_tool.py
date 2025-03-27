@@ -79,13 +79,19 @@ class YoutubeTool(BaseTool):
                 None,
                 lambda: self.transcriptor.get_transcript(video_id)
             )
-            
+
             self.logger.info(f"Successfully fetched transcript for video: {video_id}")
-            
-            return " ".join(snippet.text for snippet in transcript)
+
+            if transcript and isinstance(transcript, list):
+                if transcript and isinstance(transcript[0], dict):
+                    return " "join(snippet.get('text', '') for snippet in transcript)
+                else:
+                    return " ".join(getattr(snippet, 'text', '') for snippet in transcript)
+
+            return None
         except Exception as e:
             self.logger.error(f"Error fetching transcript: {e}")
-            return "Failed to transcribe the video"
+            return None
     
     @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
     async def get_playlists_from_channel(self, channel_id: str, max_results: int = 50) -> List[PlaylistData]:

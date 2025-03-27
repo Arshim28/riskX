@@ -14,12 +14,14 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.graph import CompiledGraph
+from dotenv import load_dotenv
 
 from base.base_agents import BaseAgent
 from base.base_graph import BaseGraph, GraphConfig
 from utils.logging import get_logger, setup_logging
 from utils.llm_provider import init_llm_provider, get_llm_provider
 from utils.prompt_manager import init_prompt_manager
+from utils.config_utils import load_config_with_env_vars, get_nested_config
 
 # Import agents
 from agents.meta_agent import MetaAgent
@@ -30,12 +32,27 @@ from agents.analyst_agent import AnalystAgent
 from agents.rag_agent import RAGAgent
 from agents.writer_agent import WriterAgent
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DOTENV_PATH = os.path.join(PROJECT_ROOT, '.env')
+load_dotenv(dotenv_path=DOTENV_PATH, override=True)
 
 # Enhanced debugging function
 def debug_print(msg, level="INFO"):
     """Print debug messages with timestamps and log levels"""
     timestamp = datetime.now().isoformat()
     print(f"DEBUG [{level}] {timestamp}: {msg}", flush=True)
+
+
+class WorkflowError(Exception):
+    """Custom exception for workflow errors with detailed information."""
+    def __init__(self, message, agent_name=None, node=None, details=None):
+        self.agent_name = agent_name
+        self.node = node
+        self.details = details
+        full_message = f"[{agent_name or 'UNKNOWN'}] {message}"
+        if details:
+            full_message += f"\nDetails: {details}"
+        super().__init__(full_message)
 
 
 class WorkflowState(TypedDict):
@@ -136,9 +153,10 @@ class ResearchPool(BaseAgent):
         
         company = state.get("company", "")
         if not company:
-            self.logger.error("Company name is missing!")
+            error_msg = "Company name is missing!"
+            self.logger.error(error_msg)
             debug_print("ERROR: Company name is missing in ResearchPool.run", "ERROR")
-            return {**state, "goto": "meta_agent", "error": "Company name is missing"}
+            raise WorkflowError(error_msg, agent_name=self.name)
         
         self.logger.info(f"Starting research pool for {company}")
         
@@ -151,24 +169,20 @@ class ResearchPool(BaseAgent):
             "event_metadata": {}
         }
         
-        # Determine which agents to run
+        # Determine which agents to run in the new specified order
         agents_to_run = []
         
-        # Always run the research agent
-        agents_to_run.append(self.research_agent)
-        debug_print(f"Added research_agent to agents_to_run")
-        
-        # Run corporate agent if company information is needed and not already present
+        # 1. Run corporate agent if company information is needed and not already present
         if not state.get("corporate_results"):
             agents_to_run.append(self.corporate_agent)
             debug_print(f"Added corporate_agent to agents_to_run")
         
-        # Run YouTube agent if video research is needed and not already present
+        # 2. Run YouTube agent if video research is needed and not already present
         if not state.get("youtube_results"):
             agents_to_run.append(self.youtube_agent)
             debug_print(f"Added youtube_agent to agents_to_run")
             
-        # Run RAG agent if enabled and not already processed
+        # 3. Run RAG agent if enabled and not already processed
         if not state.get("rag_results") and state.get("enable_rag", True):
             debug_print(f"RAG is enabled: {state.get('enable_rag', True)}")
             # Initialize RAG agent if needed
@@ -177,7 +191,8 @@ class ResearchPool(BaseAgent):
                 # Prepare state for RAG agent
                 rag_state = {
                     "command": "initialize",
-                    "vector_store_dir": state.get("vector_store_dir", "vector_store")
+                    "vector_store_dir": state.get("vector_store_dir", "vector_store"),
+                    "company": state.get('company', "Unknown")
                 }
                 
                 # Initialize RAG agent
@@ -189,17 +204,25 @@ class ResearchPool(BaseAgent):
                         state["rag_initialized"] = True
                         self.logger.info("RAG agent initialized successfully")
                     else:
-                        self.logger.warning(f"RAG agent initialization failed: {init_result.get('error')}")
-                        debug_print(f"RAG initialization failed: {init_result.get('error')}", "WARNING")
+                        error_msg = f"RAG agent initialization failed: {init_result.get('error')}"
+                        self.logger.error(error_msg)
+                        debug_print(error_msg, "ERROR")
+                        raise WorkflowError(error_msg, agent_name="rag_agent")
                 except Exception as e:
-                    self.logger.error(f"Error initializing RAG agent: {str(e)}")
-                    debug_print(f"Exception initializing RAG agent: {str(e)}", "ERROR")
+                    error_msg = f"Error initializing RAG agent: {str(e)}"
+                    self.logger.error(error_msg)
+                    debug_print(error_msg, "ERROR")
                     debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
+                    raise WorkflowError(error_msg, agent_name="rag_agent", details=traceback.format_exc())
             
             # Add RAG agent to the pool if initialized
             if state.get("rag_initialized", False):
                 agents_to_run.append(self.rag_agent)
                 debug_print(f"Added rag_agent to agents_to_run")
+        
+        # 4. Always add the research agent last
+        agents_to_run.append(self.research_agent)
+        debug_print(f"Added research_agent to agents_to_run")
         
         # Run agents concurrently
         debug_print(f"Running {len(agents_to_run)} research agents concurrently")
@@ -229,9 +252,45 @@ class ResearchPool(BaseAgent):
                             "command": "query",
                             "query": rag_query
                         }
-                        debug_print(f"Calling rag_agent.run with query: {rag_query}")
-                        agent_result = loop.run_until_complete(agent.run(rag_state))
-                        debug_print(f"RAG agent run completed")
+                        
+                        # Add special error handling for RAG agent
+                        try:
+                            debug_print(f"Calling rag_agent.run with query: {rag_query}")
+                            agent_result = loop.run_until_complete(agent.run(rag_state))
+                            debug_print(f"RAG agent run completed")
+                            
+                            # Check for "no documents" error and convert to a non-error state
+                            if agent_result.get("rag_status") == "ERROR" and "No documents loaded" in agent_result.get("error", ""):
+                                debug_print("RAG agent 'No documents loaded' is non-critical - converting to success state")
+                                # Convert to a non-error result
+                                agent_result = {
+                                    **agent_result,
+                                    "rag_status": "NO_DOCUMENTS",
+                                    "error": None,  # Clear error
+                                    "retrieval_results": {
+                                        "success": False,
+                                        "message": "No documents available in vector store"
+                                    },
+                                    "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
+                                }
+                        except Exception as e:
+                            debug_print(f"Caught error in RAG agent execution: {str(e)}", "WARNING")
+                            
+                            # Check if this is a "no documents" error that we can handle
+                            if "No documents loaded" in str(e):
+                                debug_print("RAG agent 'No documents loaded' is non-critical - creating fallback result")
+                                agent_result = {
+                                    "rag_status": "NO_DOCUMENTS",
+                                    "error": None,  # Important: don't set an error
+                                    "retrieval_results": {
+                                        "success": False,
+                                        "message": f"No documents available: {str(e)}"
+                                    },
+                                    "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
+                                }
+                            else:
+                                # For other types of errors, re-raise
+                                raise
                     else:
                         # Run other agents normally
                         debug_print(f"Calling {agent.name}.run")
@@ -240,6 +299,17 @@ class ResearchPool(BaseAgent):
                     
                     loop.close()
                     debug_print(f"process_agent completed for agent: {agent.name}")
+                    
+                    # Check for errors in the result and raise an exception
+                    # Modified to ignore non-critical RAG errors
+                    if "error" in agent_result and agent_result["error"] and not (
+                        agent.name == "rag_agent" and 
+                        agent_result.get("rag_status") in ["NO_DOCUMENTS", "NO_VECTOR_STORE"]
+                    ):
+                        error_msg = f"Error in {agent.name}: {agent_result['error']}"
+                        debug_print(error_msg, "ERROR")
+                        raise WorkflowError(error_msg, agent_name=agent.name)
+                        
                     return agent.name, agent_result
                 except Exception as e:
                     loop.close()
@@ -247,14 +317,30 @@ class ResearchPool(BaseAgent):
                     self.logger.error(error_msg)
                     debug_print(error_msg, "ERROR")
                     debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    # Return error state
-                    return agent.name, {
-                        **state,
-                        "goto": "meta_agent",
-                        "error": f"Error in {agent.name}: {str(e)}",
-                        f"{agent.name}_status": "ERROR"
-                    }
-            
+                    
+                    # Special case for RAG agent "No documents" errors - don't propagate these
+                    if agent.name == "rag_agent" and "No documents loaded" in str(e):
+                        debug_print("RAG agent 'No documents loaded' is non-critical - creating fallback result", "WARNING")
+                        fallback_result = {
+                            "rag_status": "NO_DOCUMENTS",
+                            "error": None,  # Important: don't set an error
+                            "retrieval_results": {
+                                "success": False,
+                                "message": f"No documents available: {str(e)}"
+                            },
+                            "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
+                        }
+                        return agent.name, fallback_result
+                    
+                    # Propagate the original error if it's already a WorkflowError
+                    if isinstance(e, WorkflowError):
+                        raise e
+                    # Otherwise wrap it in a WorkflowError
+                    raise WorkflowError(
+                        f"Error in {agent.name}: {str(e)}", 
+                        agent_name=agent.name,
+                        details=traceback.format_exc()
+                    )            
             # Submit all agents to the thread pool
             debug_print(f"Submitting {len(agents_to_run)} agents to thread pool")
             future_results = {executor.submit(process_agent, agent): agent for agent in agents_to_run}
@@ -297,18 +383,21 @@ class ResearchPool(BaseAgent):
                             }
                             debug_print(f"Extracted rag_results")
                     
-                    # Merge any error message
-                    if "error" in agent_result and agent_result["error"]:
-                        if "errors" not in pool_results:
-                            pool_results["errors"] = {}
-                        pool_results["errors"][agent_name] = agent_result["error"]
-                        debug_print(f"Recorded error for {agent_name}: {agent_result['error']}", "WARNING")
-                    
                 except Exception as e:
                     error_msg = f"Error processing agent result: {str(e)}"
                     self.logger.error(error_msg)
                     debug_print(error_msg, "ERROR")
                     debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
+                    
+                    # Propagate the original error if it's already a WorkflowError
+                    if isinstance(e, WorkflowError):
+                        raise e
+                    # Otherwise wrap it in a WorkflowError
+                    raise WorkflowError(
+                        error_msg, 
+                        agent_name=future_results[future].name,
+                        details=traceback.format_exc()
+                    )
         
         # Combine all results
         debug_print(f"Combining results from all agents")
@@ -326,23 +415,11 @@ class ResearchPool(BaseAgent):
         updated_state["youtube_agent_status"] = "DONE" if "youtube_results" in pool_results else state.get("youtube_agent_status", "UNKNOWN")
         updated_state["rag_agent_status"] = "DONE" if "rag_results" in pool_results else state.get("rag_agent_status", "UNKNOWN")
         
-        # Check for any errors
-        if "errors" in pool_results and pool_results["errors"]:
-            error_msgs = [f"{agent}: {error}" for agent, error in pool_results["errors"].items()]
-            error_summary = "; ".join(error_msgs)
-            updated_state["error"] = f"Research pool errors: {error_summary}"
-            self.logger.warning(f"Research pool completed with errors: {error_summary}")
-            debug_print(f"Research pool completed with errors: {error_summary}", "WARNING")
-        else:
-            self.logger.info("Research pool completed successfully")
-            debug_print("Research pool completed successfully")
-            
         # Return to meta_agent for next steps
         updated_state["goto"] = "meta_agent"
         debug_print(f"ResearchPool.run completed, returning to meta_agent")
         
         return updated_state
-
 
 class AnalystPool(BaseAgent):
     name = "analyst_pool"
@@ -375,9 +452,10 @@ class AnalystPool(BaseAgent):
         
         company = state.get("company", "")
         if not company:
-            self.logger.error("Company name is missing!")
+            error_msg = "Company name is missing!"
+            self.logger.error(error_msg)
             debug_print("ERROR: Company name is missing in AnalystPool.run", "ERROR")
-            return {**state, "goto": "meta_agent", "error": "Company name is missing"}
+            raise WorkflowError(error_msg, agent_name=self.name)
         
         # Get analyst tasks
         tasks = state.get("analyst_tasks", [])
@@ -391,15 +469,10 @@ class AnalystPool(BaseAgent):
             debug_print(f"Created {len(tasks)} analyst tasks from research results")
         
         if not tasks:
-            self.logger.warning("No analyst tasks to process")
-            debug_print("WARNING: No analyst tasks to process", "WARNING")
-            return {
-                **state,
-                "goto": "meta_agent",
-                "analyst_agent_status": "DONE",
-                "analysis_results": state.get("analysis_results", {}),
-                "error": "No analyst tasks to process"
-            }
+            error_msg = "No analyst tasks to process"
+            self.logger.error(error_msg)
+            debug_print("ERROR: No analyst tasks to process", "ERROR")
+            raise WorkflowError(error_msg, agent_name=self.name)
         
         # Initialize results
         results = {}
@@ -417,8 +490,9 @@ class AnalystPool(BaseAgent):
                 
                 # Skip invalid tasks
                 if not event_name or not event_data:
-                    debug_print(f"Skipping invalid task - missing event_name or event_data", "WARNING")
-                    return event_name, {"error": "Invalid task: missing event_name or event_data"}
+                    error_msg = f"Invalid task: missing event_name or event_data"
+                    debug_print(error_msg, "ERROR")
+                    raise WorkflowError(error_msg, agent_name=self.name)
                 
                 # Create a new analyst agent for this task (to avoid state conflicts)
                 debug_print(f"Creating new AnalystAgent for task: {event_name}")
@@ -441,7 +515,16 @@ class AnalystPool(BaseAgent):
                     error_msg = f"Error processing event {event_name}: {str(e)}"
                     debug_print(error_msg, "ERROR")
                     debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    return event_name, {"error": error_msg}
+                    
+                    # Propagate the original error if it's already a WorkflowError
+                    if isinstance(e, WorkflowError):
+                        raise e
+                    # Otherwise wrap it in a WorkflowError
+                    raise WorkflowError(
+                        error_msg,
+                        agent_name="analyst_agent",
+                        details=traceback.format_exc()
+                    )
             
             # Submit all tasks to the thread pool
             debug_print(f"Submitting {len(tasks)} tasks to thread pool")
@@ -455,12 +538,29 @@ class AnalystPool(BaseAgent):
                     event_name, task_result = future.result()
                     if event_name:  # Skip results with no event name
                         debug_print(f"Got result for event: {event_name}")
+                        
+                        # Check for errors in the task result
+                        if isinstance(task_result, dict) and "error" in task_result and task_result["error"]:
+                            error_msg = f"Error in task for event {event_name}: {task_result['error']}"
+                            debug_print(error_msg, "ERROR")
+                            raise WorkflowError(error_msg, agent_name=self.name)
+                            
                         results[event_name] = task_result
                 except Exception as e:
                     error_msg = f"Error in task execution: {str(e)}"
                     self.logger.error(error_msg)
                     debug_print(error_msg, "ERROR")
                     debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
+                    
+                    # Propagate the original error if it's already a WorkflowError
+                    if isinstance(e, WorkflowError):
+                        raise e
+                    # Otherwise wrap it in a WorkflowError
+                    raise WorkflowError(
+                        error_msg,
+                        agent_name=self.name,
+                        details=traceback.format_exc()
+                    )
         
         # Combine the results into a structured analysis result
         debug_print(f"Combining results from {len(results)} tasks")
@@ -523,8 +623,9 @@ class AnalystPool(BaseAgent):
         for event_name, result in task_results.items():
             # Skip failed tasks
             if "error" in result and result["error"]:
-                debug_print(f"Skipping failed task for event: {event_name}", "WARNING")
-                continue
+                error_msg = f"Error in task result for {event_name}: {result['error']}"
+                debug_print(error_msg, "ERROR")
+                raise WorkflowError(error_msg, agent_name=self.name)
                 
             # Add to event synthesis
             if "event_synthesis" in result:
@@ -570,8 +671,11 @@ class AnalystPool(BaseAgent):
             debug_print(f"Timeline sorted successfully")
         except Exception as e:
             # If sorting fails (e.g., due to date format), don't sort
-            debug_print(f"Error sorting timeline: {str(e)}", "WARNING")
+            error_msg = f"Error sorting timeline: {str(e)}"
+            debug_print(error_msg, "WARNING")
             debug_print(f"Traceback: {traceback.format_exc()}", "WARNING")
+            # We don't need to raise an exception here since sorting failure
+            # isn't critical to the overall process
         
         # Integrate RAG results if available
         if "rag_results" in state and state["rag_results"]:
@@ -780,6 +884,12 @@ class EnhancedForensicWorkflow(BaseGraph):
                 debug_print(f"Set {agent_status_field}=RUNNING")
                 
             try:
+                # Check for errors in the state
+                if "error" in state and state["error"]:
+                    error_msg = f"Stopping due to previous error: {state['error']}"
+                    debug_print(error_msg, "ERROR")
+                    raise WorkflowError(error_msg, agent_name=agent_name, node=agent_name)
+                
                 # Execute agent
                 debug_print(f"Executing agent.run for: {agent_name}")
                 updated_state = await agent.run(dict(state))
@@ -790,24 +900,40 @@ class EnhancedForensicWorkflow(BaseGraph):
                     updated_state[agent_status_field] = "DONE"
                     debug_print(f"Set {agent_status_field}=DONE")
                 
+                # Check for errors in the result
+                if "error" in updated_state and updated_state["error"]:
+                    error_msg = f"Error in {agent_name}: {updated_state['error']}"
+                    debug_print(error_msg, "ERROR")
+                    raise WorkflowError(error_msg, agent_name=agent_name, node=agent_name)
+                
                 return updated_state
                 
             except Exception as e:
-                error_msg = f"Error in {agent.name}: {str(e)}"
+                error_msg = f"Error in {agent_name}: {str(e)}"
                 self.logger.error(error_msg)
                 debug_print(error_msg, "ERROR")
                 debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
                 
-                return {
-                    **state,
-                    "goto": "meta_agent",
-                    "error": f"Error in {agent.name}: {str(e)}",
-                    agent_status_field: "ERROR"
-                }
+                # Propagate the original error if it's already a WorkflowError
+                if isinstance(e, WorkflowError):
+                    raise e
+                # Otherwise wrap it in a WorkflowError
+                raise WorkflowError(
+                    error_msg,
+                    agent_name=agent_name,
+                    node=agent_name,
+                    details=traceback.format_exc()
+                )
         
         def run_agent_sync(state: WorkflowState) -> WorkflowState:
             """Synchronous wrapper for the async agent execution."""
             debug_print(f"run_agent_sync called for: {agent_name}")
+            
+            # Check if the state already has an error, stop execution if it does
+            if "error" in state and state["error"]:
+                error_msg = f"Stopping execution due to previous error: {state['error']}"
+                debug_print(error_msg, "ERROR")
+                raise WorkflowError(error_msg, agent_name=agent_name, node=agent_name)
             
             # Check if we're already in an async context - if so, this needs special handling
             try:
@@ -831,12 +957,17 @@ class EnhancedForensicWorkflow(BaseGraph):
                         except Exception as e:
                             debug_print(f"Error in thread execution for {agent_name}: {str(e)}", "ERROR")
                             debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                            return {
-                                **state,
-                                "goto": "meta_agent",
-                                "error": f"Error in thread for {agent_name}: {str(e)}",
-                                f"{agent.name}_status": "ERROR"
-                            }
+                            
+                            # Propagate the original error if it's already a WorkflowError
+                            if isinstance(e, WorkflowError):
+                                raise e
+                            # Otherwise wrap it in a WorkflowError
+                            raise WorkflowError(
+                                f"Error in thread for {agent_name}: {str(e)}",
+                                agent_name=agent_name,
+                                node=agent_name,
+                                details=traceback.format_exc()
+                            )
                         finally:
                             debug_print(f"Closing event loop for {agent_name}")
                             new_loop.close()
@@ -852,22 +983,26 @@ class EnhancedForensicWorkflow(BaseGraph):
                         except concurrent.futures.TimeoutError:
                             error_msg = f"Timeout running {agent_name} in separate thread"
                             debug_print(error_msg, "ERROR")
-                            return {
-                                **state,
-                                "goto": "meta_agent",
-                                "error": error_msg,
-                                f"{agent.name}_status": "ERROR"
-                            }
+                            raise WorkflowError(
+                                error_msg,
+                                agent_name=agent_name,
+                                node=agent_name
+                            )
                         except Exception as e:
                             error_msg = f"Error executing {agent_name} in thread: {str(e)}"
                             debug_print(error_msg, "ERROR")
                             debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                            return {
-                                **state,
-                                "goto": "meta_agent",
-                                "error": error_msg,
-                                f"{agent.name}_status": "ERROR"
-                            }
+                            
+                            # Propagate the original error if it's already a WorkflowError
+                            if isinstance(e, WorkflowError):
+                                raise e
+                            # Otherwise wrap it in a WorkflowError
+                            raise WorkflowError(
+                                error_msg,
+                                agent_name=agent_name,
+                                node=agent_name,
+                                details=traceback.format_exc()
+                            )
                         
             except Exception as e:
                 debug_print(f"Error checking async context: {str(e)}", "WARNING")
@@ -900,20 +1035,40 @@ class EnhancedForensicWorkflow(BaseGraph):
                 self.logger.error(error_msg)
                 debug_print(error_msg, "ERROR")
                 debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                return {
-                    **state,
-                    "goto": "meta_agent",
-                    "error": error_msg,
-                    f"{agent.name}_status": "ERROR"
-                }
+                
+                # Propagate the original error if it's already a WorkflowError
+                if isinstance(e, WorkflowError):
+                    raise e
+                # Otherwise wrap it in a WorkflowError
+                raise WorkflowError(
+                    error_msg,
+                    agent_name=agent_name,
+                    node=agent_name,
+                    details=traceback.format_exc()
+                )
                 
         return run_agent_sync    
+    
     def route_from_meta_agent(self, state: WorkflowState) -> str:
         """
         Centralized routing logic from meta_agent to next node.
         All routing decisions are now made in the MetaAgent based on the current phase.
         """
         debug_print(f"route_from_meta_agent called, current phase: {state.get('current_phase', 'UNKNOWN')}")
+        
+        # Check for errors - stop execution if any error is found
+        if "error" in state and state["error"]:
+                # Check if this is a RAG "No documents" error - not a critical error
+                if "rag_agent" in state.get("goto", "") and "No documents loaded" in state["error"]:
+                    debug_print("Ignoring non-critical RAG error: No documents loaded", "WARNING")
+                    # Clear the error and continue the workflow
+                    state["error"] = None
+                else:
+                    # For other errors, stop the workflow
+                    error_msg = f"Stopping workflow due to error: {state['error']}"
+                    debug_print(error_msg, "ERROR")
+                    # Stop the workflow by going to END
+                    return "END"
         
         # Check for explicit routing in the goto field
         goto = state.get("goto")
@@ -968,6 +1123,7 @@ class EnhancedForensicWorkflow(BaseGraph):
         
         # Execute graph
         result = None
+        current_node = "start"
         debug_print("Starting graph.stream")
         try:
             debug_print("Starting graph execution loop")
@@ -990,6 +1146,8 @@ class EnhancedForensicWorkflow(BaseGraph):
                     error_msg = f"Error in node {current_node}: {current_state['error']}"
                     self.logger.error(error_msg)
                     debug_print(error_msg, "ERROR")
+                    # Stop execution by raising an exception
+                    raise WorkflowError(error_msg, node=current_node)
                     
                 # Check for user approval needed
                 if current_state.get("requires_user_approval", False):
@@ -1013,8 +1171,34 @@ class EnhancedForensicWorkflow(BaseGraph):
                 
             debug_print("Graph execution loop completed")
             
+        except WorkflowError as e:
+            error_msg = f"Workflow error: {str(e)}"
+            self.logger.error(error_msg)
+            debug_print(error_msg, "ERROR")
+            
+            # Create detailed error report
+            error_report = {
+                "error": str(e),
+                "agent": getattr(e, "agent_name", "unknown"),
+                "node": getattr(e, "node", current_node),
+                "details": getattr(e, "details", traceback.format_exc()),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Try to return a partial result if available
+            if result is None:
+                result = prepared_state
+            
+            # Add error information to the state
+            result["error"] = str(e)
+            result["error_report"] = error_report
+            result["workflow_status"] = "ERROR"
+            
+            # Log detailed error information
+            debug_print(f"Workflow error details: {json.dumps(error_report, indent=2)}", "ERROR")
+            
         except Exception as e:
-            error_msg = f"Error during graph execution: {str(e)}"
+            error_msg = f"Unhandled error during graph execution: {str(e)}"
             self.logger.error(error_msg)
             debug_print(error_msg, "ERROR")
             debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
@@ -1022,8 +1206,11 @@ class EnhancedForensicWorkflow(BaseGraph):
             # Try to return a partial result if available
             if result is None:
                 result = prepared_state
-                result["error"] = error_msg
-                result["workflow_status"] = "ERROR"
+            
+            # Add error information to the state
+            result["error"] = error_msg
+            result["workflow_status"] = "ERROR"
+            result["error_details"] = traceback.format_exc()
         
         # Log workflow completion
         self.logger.info(f"Workflow completed for company: {prepared_state['company']}")
@@ -1145,7 +1332,8 @@ class EnhancedForensicWorkflow(BaseGraph):
                 return {
                     **initial_state,
                     "error": error_msg,
-                    "workflow_status": "ERROR"
+                    "workflow_status": "ERROR",
+                    "error_details": traceback.format_exc()
                 }
 
 
@@ -1163,15 +1351,20 @@ async def create_and_run_workflow(
     if config_path and os.path.exists(config_path):
         debug_print(f"Loading config from: {config_path}")
         try:
-            with open(config_path, 'r') as f:
-                if config_path.endswith('.yaml') or config_path.endswith('.yml'):
-                    config = yaml.safe_load(f)
-                else:
-                    config = json.load(f)
+            config = load_config_with_env_vars(config_path)
             debug_print(f"Config loaded successfully with {len(config)} keys")
+                        
+            # Debug statements for SerpAPI key
+            if 'research' in config:
+                print(f"DEBUG WORKFLOW: Research config keys: {list(config.get('research', {}).keys())}")
+                print(f"DEBUG WORKFLOW: SerpAPI key present: {'api_key' in config.get('research', {})}")
+                if 'api_key' in config.get('research', {}):
+                    api_key = config['research']['api_key']
+                    print(f"DEBUG WORKFLOW: SerpAPI key first few chars: {api_key[:5]}..." if api_key else "EMPTY")
         except Exception as e:
             debug_print(f"Error loading config: {str(e)}", "ERROR")
             debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
+            raise WorkflowError(f"Failed to load config: {str(e)}", details=traceback.format_exc())
             
     # Setup logging
     debug_print(f"Setting up logging with level: {config.get('log_level', 'INFO')}")
@@ -1205,12 +1398,7 @@ async def create_and_run_workflow(
         logger.error(error_msg)
         debug_print(error_msg, "ERROR")
         debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-        return {
-            "error": error_msg,
-            "company": company,
-            "industry": industry,
-            "workflow_status": "ERROR"
-        }
+        raise WorkflowError(error_msg, details=traceback.format_exc())
     
     # Prepare initial state if not provided
     if initial_state is None:
@@ -1238,30 +1426,24 @@ async def create_and_run_workflow(
     
     # We're already in an async context, just await the run method
     debug_print("Awaiting workflow.run")
-    try:
-        result = await workflow.run(initial_state)
-        debug_print("workflow.run completed successfully")
-        
-        logger.info(f"Workflow completed for company: {company}")
-        debug_print(f"Workflow completed for company: {company}")
-        
-        return result
-    except Exception as e:
-        error_msg = f"Error running workflow: {str(e)}"
-        logger.error(error_msg)
-        debug_print(error_msg, "ERROR")
-        debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-        return {
-            **initial_state,
-            "error": error_msg,
-            "workflow_status": "ERROR"
-        }
+    result = await workflow.run(initial_state)
+    debug_print("workflow.run completed")
+    
+    logger.info(f"Workflow completed for company: {company}")
+    debug_print(f"Workflow completed for company: {company}")
+    
+    return result
 
 
 if __name__ == "__main__":
     import argparse
     
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    DOTENV_PATH = os.path.join(PROJECT_ROOT, '.env')
+    debug_print(f"Loading environment variables from: {DOTENV_PATH}")
+    load_dotenv(dotenv_path=DOTENV_PATH, override=True)
     debug_print("Script started as main")
+    debug_print(f"Serpapi key present: {os.getenv('SERPAPI_API_KEY')}")
     
     parser = argparse.ArgumentParser(description='Run Financial Forensic Analysis')
     parser.add_argument('--company', type=str, required=True, help='Company name to analyze')
@@ -1294,11 +1476,26 @@ if __name__ == "__main__":
             initial_state=initial_state
         ))
         debug_print(f"create_and_run_workflow completed")
+    except WorkflowError as e:
+        debug_print(f"Workflow error: {str(e)}", "ERROR")
+        debug_print(f"Agent: {getattr(e, 'agent_name', 'unknown')}", "ERROR")
+        debug_print(f"Node: {getattr(e, 'node', 'unknown')}", "ERROR")
+        if hasattr(e, 'details') and e.details:
+            debug_print(f"Details: {e.details}", "ERROR")
+        result = {
+            "error": f"Workflow error: {str(e)}",
+            "error_agent": getattr(e, 'agent_name', 'unknown'),
+            "error_node": getattr(e, 'node', 'unknown'),
+            "error_details": getattr(e, 'details', None),
+            "company": args.company,
+            "industry": args.industry
+        }
     except Exception as e:
         debug_print(f"Error in main execution: {str(e)}", "ERROR")
         debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
         result = {
             "error": f"Workflow execution failed: {str(e)}",
+            "error_details": traceback.format_exc(),
             "company": args.company,
             "industry": args.industry
         }
@@ -1308,7 +1505,20 @@ if __name__ == "__main__":
     print(f"Analysis completed for: {args.company}")
     print("="*80)
     
-    if result.get("final_report"):
+    # Check for errors
+    if "error" in result and result["error"]:
+        print(f"\nERROR: {result['error']}")
+        if "error_agent" in result:
+            print(f"Agent: {result['error_agent']}")
+        if "error_node" in result:
+            print(f"Node: {result['error_node']}")
+        if "error_details" in result and result["error_details"]:
+            print("\nError Details:")
+            print("-"*40)
+            print(result["error_details"])
+            print("-"*40)
+    
+    elif result.get("final_report"):
         print(f"Report generated with {len(result.get('final_report'))} characters")
         
         # Save report to file
@@ -1319,6 +1529,3 @@ if __name__ == "__main__":
         
     else:
         print("No report generated. Check logs for errors.")
-        
-    if result.get("error"):
-        print(f"Error: {result['error']}")

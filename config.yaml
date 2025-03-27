@@ -24,7 +24,7 @@ embedding:
   max_tokens: 8000
 
 youtube:
-  youtube_api_key: "AIzaSyB5x0F4nohY7KIH-2JKiaFKnNyMRMrzIVQ"
+  youtube_api_key: "${YOUTUBE_API_KEY}"
 
 nse:
   company: "Bajaj"
@@ -53,6 +53,7 @@ postgres:
   database: "forensic_db"
   min_connections: 2
   max_connections: 20
+  init_schema: true
 
 rag_agent:
   retrieval_k: 5
@@ -70,11 +71,11 @@ forensic_analysis:
   concurrent_events: 2
   task_timeout: 300
   evidence_strength: 3
-  model: "gemini-2.0-pro"
+  model: "gemini-2.0-flash"
 
 workflow:
-  max_parallel_agents: 3
-  max_iterations: 3
+  max_parallel_agents: 1
+  max_iterations: 1
   analyst_pool_size: 5
   checkpointing: true
   checkpoint_interval: 600
@@ -85,3 +86,59 @@ retry:
   multiplier: 1
   min_wait: 2
   max_wait: 10
+
+# LLM Provider Configuration
+llm_provider:
+  default_provider: "google"
+  providers:
+    google:
+      api_key: "${GOOGLE_API_KEY}"  # Will use environment variable
+      default_model: "gemini-2.0-flash"
+      timeout: 30.0
+      additional_config:
+        safety_settings:
+          # Using correct safety settings format for Gemini
+          # HarmCategory integers with HarmBlockThreshold integers
+          # Reference: https://github.com/langchain-ai/langchain-google/blob/main/libs/genai/langchain_google_genai/chat_models.py
+          1: 0  # HARASSMENT: BLOCK_NONE 
+          2: 0  # HATE_SPEECH: BLOCK_NONE
+          3: 0  # SEXUALLY_EXPLICIT: BLOCK_NONE
+          4: 0  # DANGEROUS_CONTENT: BLOCK_NONE
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"  # Will use environment variable
+      default_model: "claude-3-sonnet-20240229"
+      timeout: 45.0
+    openai:
+      api_key: "${OPENAI_API_KEY}"  # Will use environment variable
+      default_model: "gpt-4-0125-preview"
+      timeout: 30.0
+  retry:
+    max_retries: 3
+    strategy: "exponential"
+    initial_delay: 1.0
+    max_delay: 60.0
+    retry_rate_limits: true
+    retry_auth_errors: false
+    retry_connection_errors: true
+    retry_service_unavailable: true
+    jitter: true
+  validation:
+    validate_json: true
+    check_empty_responses: true
+    check_content_length: false
+
+models:
+  planning: "gemini-2.0-flash"
+  clustering: "gemini-2.0-flash"  
+importance_thresholds:
+  high: 75
+  medium: 50
+  low: 25
+validation:
+  min_snippet_length: 20
+  min_title_length: 5
+  max_duplicate_similarity: 0.85
+  min_relevance_score: 0.3
+
+research:
+  api_key: "${SERPAPI_API_KEY}"

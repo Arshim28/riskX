@@ -150,7 +150,8 @@ class PostgresPool:
                 password = self.config.password or os.environ.get("POSTGRES_PASSWORD", "")
                 
                 async def setup_connection(conn):
-                    await conn.execute("SET statement_timeout = $1", int(self.config.query_timeout * 1000))
+                    timeout_ms = int(self.config.query_timeout * 1000)
+                    await conn.execute(f"SET statement_timeout = {timeout_ms}")
                     self.stats["connections_created"] += 1
                     self.stats["active_connections"] += 1
                 
@@ -179,7 +180,7 @@ class PostgresPool:
         while not self._terminating and self.pool:
             try:
                 async with self.pool.acquire() as conn:
-                    await conn.execute("SELECT 1")
+                    await conn.execute("SELECT 1 as health_check")
                     
                     self.stats["idle_connections"] = self.pool.get_idle_size()
                     self.stats["active_connections"] = self.pool.get_size() - self.pool.get_idle_size()
@@ -322,20 +323,87 @@ class PostgresTool(BaseTool):
             # Add indexes on commonly queried columns
             """
             CREATE INDEX IF NOT EXISTS idx_companies_name ON companies (name);
+            """,
+            # Workflow snapshots table with snapshot_data column
             """
-            # Rest of schema creation queries omitted for brevity
+            CREATE TABLE IF NOT EXISTS workflow_snapshots (
+                id SERIAL PRIMARY KEY,
+                workflow_id TEXT DEFAULT 'wf_' || floor(random() * 1000000)::text,
+                company TEXT NOT NULL,
+                timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                node TEXT DEFAULT NULL,
+                state JSONB DEFAULT NULL,
+                snapshot_data JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            # Unique index on company for ON CONFLICT support
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_snapshots_company_unique
+            ON workflow_snapshots (company);
+            """,
+            # Workflow status table with status_data column
+            """
+            CREATE TABLE IF NOT EXISTS workflow_status (
+                id SERIAL PRIMARY KEY,
+                workflow_id TEXT DEFAULT 'wf_' || floor(random() * 1000000)::text, 
+                company TEXT NOT NULL,
+                status TEXT DEFAULT 'INITIALIZED',
+                current_phase TEXT DEFAULT 'RESEARCH',
+                last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                meta_data JSONB DEFAULT NULL,
+                status_data JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            # Unique index on company for workflow_status
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_status_company_unique
+            ON workflow_status (company);
+            """,
+            # Workflow errors table
+            """
+            CREATE TABLE IF NOT EXISTS workflow_errors (
+                id SERIAL PRIMARY KEY,
+                company TEXT NOT NULL,
+                error_data JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            # Index on company for workflow_errors
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_errors_company ON workflow_errors (company);
+            """,
+            # Other indexes
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_snapshots_workflow_id ON workflow_snapshots (workflow_id);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_snapshots_company ON workflow_snapshots (company);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_status_workflow_id ON workflow_status (workflow_id);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_status_company ON workflow_status (company);
+            """
         ]
         
-        async with self.pool.acquire() as conn:
+        # Proper handling of async connection acquisition
+        conn = await self.pool.acquire()
+        try:
             for query in schema_queries:
                 try:
                     await conn.execute(query)
                 except Exception as e:
                     self.logger.error(f"Error creating schema: {str(e)}")
-                    raise
-                    
-        self.logger.info("Schema initialization completed successfully")
-    
+                    # Continue with other queries even if one fails
+                    # This helps when adding new columns to existing tables
+                    continue
+            self.logger.info("Schema initialization completed successfully")
+        finally:
+            # Always release the connection, even if an error occurs
+            await self.pool.release(conn)
     def _generate_query_hash(self, query: str, params: Optional[List[Any]] = None) -> str:
         param_str = json.dumps(params) if params else ""
         hash_input = f"{query}:{param_str}"
@@ -345,11 +413,60 @@ class PostgresTool(BaseTool):
         stmt = self.pool.stmt_cache.get(conn, query)
         if stmt:
             return stmt
+                
+        try:
+            # This is where the PreparedStatement object is created by asyncpg
+            stmt = await conn.prepare(query)
             
-        stmt = await conn.prepare(query)
-        await self.pool.stmt_cache.add(conn, query, stmt)
-        return stmt
-    
+            # Create a wrapper that provides a consistent interface
+            class StatementWrapper:
+                def __init__(self, prepared_stmt, connection, query_str):
+                    self.stmt = prepared_stmt
+                    self.conn = connection
+                    self.query = query_str
+                    
+                async def fetch(self, *args):
+                    return await self.stmt.fetch(*args)
+                    
+                async def execute(self, *args):
+                    # PreparedStatement doesn't have execute, but we can use fetch
+                    # for non-SELECT queries and just ignore the empty result
+                    if self.query.strip().upper().startswith(("SELECT", "WITH")):
+                        return await self.stmt.fetch(*args)
+                    else:
+                        # For non-SELECT queries, use the connection directly
+                        return await self.conn.execute(self.query, *args)
+                        
+                async def fetchrow(self, *args):
+                    return await self.stmt.fetchrow(*args)
+            
+            wrapper = StatementWrapper(stmt, conn, query)
+            await self.pool.stmt_cache.add(conn, query, wrapper)
+            return wrapper
+            
+        except Exception as e:
+            self.logger.error(f"Error preparing statement: {str(e)}")
+            self.logger.warning(f"Falling back to raw query execution for: {query[:100]}...")
+            
+            # Return a simple wrapper object that provides the same interface
+            class SimpleExecutor:
+                def __init__(self, connection, query_str):
+                    self.conn = connection
+                    self.query = query_str
+                    
+                async def fetch(self, *args):
+                    return await self.conn.fetch(self.query, *args)
+                    
+                async def execute(self, *args):
+                    return await self.conn.execute(self.query, *args)
+                    
+                async def fetchrow(self, *args):
+                    return await self.conn.fetchrow(self.query, *args)
+            
+            executor = SimpleExecutor(conn, query)
+            await self.pool.stmt_cache.add(conn, query, executor)
+            return executor
+        
     async def _optimize_query(self, query: str) -> str:
         lowercase_query = query.lower()
         
@@ -405,6 +522,55 @@ class PostgresTool(BaseTool):
         conn = None
         
         try:
+            # Special handling for specific error cases we're encountering
+            if "workflow_snapshots" in query and "snapshot_data" in query:
+                # First try to add the column if it doesn't exist
+                try:
+                    add_column_conn = await self.pool.acquire()
+                    try:
+                        await add_column_conn.execute(
+                            "ALTER TABLE workflow_snapshots ADD COLUMN IF NOT EXISTS snapshot_data JSONB"
+                        )
+                        self.logger.info("Added snapshot_data column to workflow_snapshots table")
+                    finally:
+                        await self.pool.release(add_column_conn)
+                except Exception as column_err:
+                    self.logger.warning(f"Error adding snapshot_data column: {str(column_err)}")
+            
+            if "workflow_status" in query and "status_data" in query:
+                # First try to add the column if it doesn't exist
+                try:
+                    add_column_conn = await self.pool.acquire()
+                    try:
+                        await add_column_conn.execute(
+                            "ALTER TABLE workflow_status ADD COLUMN IF NOT EXISTS status_data JSONB"
+                        )
+                        self.logger.info("Added status_data column to workflow_status table")
+                    finally:
+                        await self.pool.release(add_column_conn)
+                except Exception as column_err:
+                    self.logger.warning(f"Error adding status_data column: {str(column_err)}")
+            
+            if "workflow_errors" in query:
+                # First try to create the table if it doesn't exist
+                try:
+                    add_table_conn = await self.pool.acquire()
+                    try:
+                        await add_table_conn.execute("""
+                            CREATE TABLE IF NOT EXISTS workflow_errors (
+                                id SERIAL PRIMARY KEY,
+                                company TEXT NOT NULL,
+                                error_data JSONB,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                        self.logger.info("Created workflow_errors table")
+                    finally:
+                        await self.pool.release(add_table_conn)
+                except Exception as table_err:
+                    self.logger.warning(f"Error creating workflow_errors table: {str(table_err)}")
+                    
+            # Now proceed with the original query
             optimized_query = await self._optimize_query(query)
             
             # Get connection from pool
@@ -446,7 +612,7 @@ class PostgresTool(BaseTool):
             self.query_stats.record_query(query, execution_time, success)
             
             if execution_time > 1.0:
-                self.logger.warning(f"Slow query detected: {execution_time:.3f}s for {query[:100]}...")
+                self.logger.warning(f"Slow query detected: {execution_time:.3f}s for {query[:100]}...")    
     
     async def fetch_one(self, query: str, params: Optional[List[Any]] = None) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         await self._ensure_initialized()

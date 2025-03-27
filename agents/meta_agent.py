@@ -5,7 +5,7 @@ from datetime import datetime
 import traceback
 import asyncio
 import copy
-
+import time
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -100,7 +100,7 @@ class MetaAgent(BaseAgent):
         """Save current workflow state for possible rollback"""
         # Filter out any None status values to avoid validation errors
         agent_statuses = {name: task.status for name, task in self.agent_tasks.items() 
-                         if task.status is not None}
+                          if task.status is not None}
         
         snapshot = WorkflowStateSnapshot(
             pending_agents=self.pending_agents.copy(),
@@ -116,6 +116,7 @@ class MetaAgent(BaseAgent):
             
         try:
             company = state.get("company", "unknown")
+            workflow_id = state.get("workflow_id", f"wf_{int(time.time())}")
             serializable_snapshot = {
                 "timestamp": snapshot.timestamp,
                 "pending_agents": list(snapshot.pending_agents),
@@ -124,14 +125,24 @@ class MetaAgent(BaseAgent):
                 "failed_agents": list(snapshot.failed_agents),
                 "agent_statuses": snapshot.agent_statuses
             }
+        
+            # Modified query to include all required columns and ensure it works properly
             await self.postgres_tool.run(
                 command="execute_query",
-                query="INSERT INTO workflow_snapshots (company, snapshot_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET snapshot_data = $2",
-                params=[company, json.dumps(serializable_snapshot)]
+                query="""
+                    INSERT INTO workflow_snapshots 
+                        (workflow_id, company, timestamp, snapshot_data) 
+                    VALUES 
+                        ($1, $2, CURRENT_TIMESTAMP, $3) 
+                    ON CONFLICT (company) DO UPDATE SET 
+                        snapshot_data = $3,
+                        timestamp = CURRENT_TIMESTAMP
+                """,
+                params=[workflow_id, company, json.dumps(serializable_snapshot)]
             )
         except Exception as e:
-            self.logger.warning(f"Failed to persist workflow snapshot: {str(e)}")
-    
+            self.logger.warning(f"Failed to persist workflow snapshot: {str(e)}")    
+
     async def rollback_to_last_snapshot(self) -> bool:
         """Rollback workflow state to last stable snapshot"""
         if not self.state_history:
@@ -431,12 +442,36 @@ class MetaAgent(BaseAgent):
     async def save_workflow_status(self, state: Dict[str, Any], status: Dict[str, Any]) -> None:
         """Save workflow status to database"""
         company = state.get("company", "Unknown")
+        workflow_id = state.get("workflow_id", f"wf_{int(time.time())}")
+        current_phase = state.get("current_phase", "RESEARCH")
+        status_text = status.get("status", "RUNNING")
         
         try:
+            # First ensure the column exists
+            try:
+                await self.postgres_tool.run(
+                    command="execute_query",
+                    query="ALTER TABLE workflow_status ADD COLUMN IF NOT EXISTS status_data JSONB",
+                    params=[]
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to ensure status_data column exists: {str(e)}")
+            
+            # Now do the insert/update with all required columns
             await self.postgres_tool.run(
                 command="execute_query",
-                query="INSERT INTO workflow_status (company, status_data) VALUES ($1, $2) ON CONFLICT (company) DO UPDATE SET status_data = $2",
-                params=[company, json.dumps(status)]
+                query="""
+                    INSERT INTO workflow_status 
+                        (workflow_id, company, status, current_phase, status_data, last_updated) 
+                    VALUES 
+                        ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) 
+                    ON CONFLICT (company) DO UPDATE SET 
+                        status_data = $5,
+                        status = $3,
+                        current_phase = $4,
+                        last_updated = CURRENT_TIMESTAMP
+                """,
+                params=[workflow_id, company, status_text, current_phase, json.dumps(status)]
             )
             self.logger.debug(f"Saved workflow status to database for {company}")
         except Exception as e:
@@ -456,7 +491,7 @@ class MetaAgent(BaseAgent):
             
             for agent_name, dependencies in self.agent_dependencies.items():
                 priority = self.agent_priorities.get(agent_name, 0)
-                
+                self.logger.info(f"Initializing task for agent {agent_name} with priority {priority}")
                 # Check configuration for parallel execution
                 is_parallel = self.parallel_execution
                 
@@ -472,7 +507,6 @@ class MetaAgent(BaseAgent):
                 self.agent_tasks[agent_name] = task
                 self.pending_agents.add(agent_name)
             
-            # Save initial state snapshot
             await self.save_state_snapshot(state)
     
     async def get_agent_status(self, agent_name: str) -> str:
@@ -489,6 +523,13 @@ class MetaAgent(BaseAgent):
                 return
                 
             prev_status = self.agent_tasks[agent_name].status
+            
+            # Special handling for RAG agent errors that are non-critical
+            if agent_name == "rag_agent" and status == "ERROR" and await self.is_recoverable_rag_error(error):
+                self.logger.info(f"Converting non-critical RAG error to success: {error}")
+                status = "DONE"  # Convert to success
+                error = None     # Clear the error
+            
             self.agent_tasks[agent_name].status = status
             
             # Status transitions with proper set updates
@@ -621,6 +662,27 @@ class MetaAgent(BaseAgent):
             
         self.logger.info("Attempting workflow recovery")
         
+        if "rag_agent" in self.failed_agents:
+            error = self.agent_tasks["rag_agent"].error
+            if await self.is_recoverable_rag_error(error):
+                self.logger.info(f"Converting non-critical rag error to success: {error}")
+
+                self.failed_agents.remove("rag_agent")
+                self.completed_agents.add("rag_agent")
+                self.agent_tasks['rag_agent'].status = "DONE"
+                self.agent_tasks['rag_agent'].error = None
+
+                state["rag_agent_status"] = "DONE"
+                state["rag_results"] = {
+                    "response": "No document-based analysis available",
+                    "retrieval_results": {
+                        "success": False,
+                        "message": f"RAG agent status: No docs available"
+                    },
+                    "query": state.get("query", "No query processed")
+                }
+                return True, state
+
         # Strategy 1: Retry failed agents with critical dependencies
         recovery_attempted = False
         critical_agents = ["research_agent", "analyst_agent", "writer_agent"]
@@ -746,16 +808,49 @@ class MetaAgent(BaseAgent):
             
             if status_key in state and state[status_key] is not None:
                 # Update our internal tracking
+                error = state.get("error")
+                if agent_name == "rag_agent" and state[status_key] == "ERROR" and await self.is_recoverable_rag_error(error):
+                    self.logger.info(f"Converting non-critical RAG Agent error to success: {error}")
+                    updated_state[status_key] = "DONE"
+
+                    if "goto" in updated_state and updated_state["goto"] == "meta_agent":
+                        updated_state["error"] = None
+
+                    updated_state["rag_results"] = {
+                        "response": "No document-based analysis available",
+                        "retrieval_results": {
+                            "success": False,
+                            "message": f"RAG agent status: No docs available"
+                        },
+                        "query": updated_state.get("query", "No query processed")
+                    }
                 await self.update_agent_status(
                     agent_name, 
-                    state[status_key],
-                    state.get("error") if state[status_key] == "ERROR" else None
+                    updated_state[status_key],
+                    state.get("error") if updated_state[status_key] == "ERROR" else None
                 )
         
         # Take a snapshot of the current state for recovery
         await self.save_state_snapshot(updated_state)
         
         return updated_state
+
+    async def is_recoverable_rag_error(self, error_message: str) -> bool:
+        if not error_message:
+            return False
+
+        recoverable_messages = [
+        "No documents loaded",
+        "No documents to categorize",
+        "No vector store",
+        "Vector store not initialized"
+        ]
+
+        for message in recoverable_messages:
+            if message in error_message:
+                return True
+
+        return False
 
     async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -882,3 +977,4 @@ class MetaAgent(BaseAgent):
             
             # If we can't recover, return error state
             return {**current_state, "goto": "END", "error": error_msg}
+
