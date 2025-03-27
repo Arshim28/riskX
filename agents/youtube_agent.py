@@ -98,20 +98,53 @@ class YouTubeAgent(BaseAgent):
             raise YouTubeDataError(error_msg)
             
         try:
+            # More robust JSON extraction
+            self.logger.info(f"Attempting to parse JSON from response of length {len(response)}")
+            
+            # First look for JSON blocks
             if "```json" in response:
-                response = response.split("```json", 1)[1].split("```", 1)[0]
+                json_content = response.split("```json", 1)[1].split("```", 1)[0].strip()
+                self.logger.info(f"Extracted JSON from ```json block, length: {len(json_content)}")
             elif "```" in response:
-                response = response.split("```", 1)[1].split("```", 1)[0]
-                    
-            return json.loads(response.strip())
-        except json.JSONDecodeError as e:
-            error_msg = f"Failed to parse {context} JSON: {str(e)}"
-            self.logger.error(error_msg)
-            raise YouTubeDataError(error_msg)
+                json_content = response.split("```", 1)[1].split("```", 1)[0].strip()
+                self.logger.info(f"Extracted JSON from generic ``` block, length: {len(json_content)}")
+            else:
+                # If no markdown blocks, try to find JSON structure directly
+                # First, try to find opening and closing braces for a complete JSON object
+                if response.strip().startswith("{") and response.strip().endswith("}"):
+                    json_content = response.strip()
+                    self.logger.info(f"Using raw response as JSON object, length: {len(json_content)}")
+                else:
+                    # Last resort - use the whole response and hope for the best
+                    json_content = response.strip()
+                    self.logger.info(f"Using entire response content as JSON, length: {len(json_content)}")
+            
+            # Try to parse, with fallback to a default structure if parsing fails
+            try:
+                parsed_json = json.loads(json_content)
+                self.logger.info(f"Successfully parsed JSON with {len(parsed_json)} top-level keys")
+                return parsed_json
+            except json.JSONDecodeError as e:
+                self.logger.error(f"JSONDecodeError: {str(e)}, falling back to default structure")
+                
+                # Create a default response structure as fallback
+                default_response = {
+                    "forensic_relevance": "unknown",
+                    "red_flags": [],
+                    "summary": f"Failed to parse response for {context}: {str(e)}. Original content: {response[:200]}..."
+                }
+                return default_response
+                
         except Exception as e:
             error_msg = f"Unexpected error parsing {context}: {str(e)}"
             self.logger.error(error_msg)
-            raise YouTubeDataError(error_msg)
+            
+            # Return default structure instead of raising error
+            return {
+                "forensic_relevance": "unknown",
+                "red_flags": ["Parsing error"],
+                "summary": f"Error processing content: {str(e)}"
+            }
     
     def _validate_result(self, result: Any, required_fields: List[str], context: str = "result") -> None:
         if not result:
@@ -596,9 +629,56 @@ class YouTubeAgent(BaseAgent):
             industry = state.get("industry", "")
             research_plan = state.get("research_plan", [])
             
+            # Set status early to properly track that we started processing
+            state["youtube_agent_status"] = "RUNNING"
+            
             if not company:
                 self.logger.error("Company name is missing!")
-                return {**state, "goto": "meta_agent", "youtube_status": "ERROR", "error": "Company name is missing"}
+                return {**state, "goto": "meta_agent", "youtube_agent_status": "ERROR", "error": "Company name is missing"}
+            
+            # Load templates for youtube analyze_transcript if not found
+            try:
+                self.logger.info("Preloading YouTube templates to ensure they exist")
+                if not os.path.exists("prompts/youtube_agent"):
+                    self.logger.warning("Creating youtube_agent prompt directory")
+                    os.makedirs("prompts/youtube_agent", exist_ok=True)
+                    
+                # Create default templates if they don't exist
+                if not os.path.exists("prompts/youtube_agent/analyze_transcript_system.j2"):
+                    with open("prompts/youtube_agent/analyze_transcript_system.j2", "w") as f:
+                        f.write("""You are a forensic financial analyst examining YouTube videos.
+                        
+Your task is to analyze this transcript for any information that could be relevant to a financial forensic investigation of {{ company }}.
+
+Focus on:
+1. Mentions of financial irregularities, accounting issues, or suspicious practices
+2. References to regulatory investigations, lawsuits, or legal actions
+3. Discussions of management issues, conflicts of interest, or governance problems
+4. Information about company structure, subsidiaries, or relationships that could enable financial manipulation
+5. Comments on the company's financial health, debt, or financial reporting quality
+
+Return your analysis as a JSON with:
+- forensic_relevance: "high", "medium", or "low" 
+- red_flags: a list of concerning items found (empty list if none)
+- summary: a concise analysis focusing only on financially relevant information""")
+                
+                if not os.path.exists("prompts/youtube_agent/analyze_transcript_human.j2"):
+                    with open("prompts/youtube_agent/analyze_transcript_human.j2", "w") as f:
+                        f.write("""Please analyze this transcript for the video titled "{{ video_title }}" about {{ company }}.
+
+Description: {{ video_description }}
+
+Transcript:
+{{ transcript }}
+
+Analyze the transcript for any information that would be relevant in a financial forensic investigation. Focus specifically on any potential red flags, financial irregularities, accounting issues, or regulatory/legal concerns.
+
+Return your analysis in JSON format with these fields:
+- forensic_relevance: "high", "medium", or "low" based on how relevant this content is for investigation
+- red_flags: list of specific issues or concerns found (empty list if none)
+- summary: concise overview of key points relevant to financial forensic analysis""")
+            except Exception as e:
+                self.logger.warning(f"Error setting up templates: {str(e)}. Will use default prompts.")
             
             if not research_plan:
                 self.logger.warning("No research plan provided, using default queries")
@@ -645,15 +725,26 @@ class YouTubeAgent(BaseAgent):
             
             all_videos = []
             
+            # We'll retry each query up to 3 times before giving up
             for query in youtube_queries:
-                try:
-                    videos = await self.search_videos(query, max_results=5)
-                    all_videos.extend(videos)
-                    self.logger.info(f"Found {len(videos)} videos for query: {query}")
-                except Exception as e:
-                    error_msg = f"Error searching for '{query}': {str(e)}"
-                    self.logger.error(error_msg)
-                    search_errors.append(error_msg)
+                retry_count = 0
+                max_retries = 3
+                while retry_count < max_retries:
+                    try:
+                        self.logger.info(f"Searching for videos with query: {query} (attempt {retry_count+1})")
+                        videos = await self.search_videos(query, max_results=5)
+                        all_videos.extend(videos)
+                        self.logger.info(f"Found {len(videos)} videos for query: {query}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        retry_count += 1
+                        error_msg = f"Error searching for '{query}': {str(e)}"
+                        self.logger.error(error_msg)
+                        if retry_count >= max_retries:
+                            search_errors.append(error_msg)
+                        else:
+                            self.logger.info(f"Retrying query {query} ({retry_count}/{max_retries})")
+                            await asyncio.sleep(2)  # Brief pause before retry
             
             unique_videos = {}
             for video in all_videos:
@@ -835,8 +926,8 @@ class YouTubeAgent(BaseAgent):
             if state.get("synchronous_pipeline", False):
                 goto = state.get("next_agent", "meta_agent")
                 
-            self._log_completion({**state, "goto": goto})
-            return {**state, "goto": goto}
+            self._log_completion({**state, "goto": "meta_agent"})
+            return {**state, "goto": "meta_agent"}
             
         except Exception as e:
             tb = traceback.format_exc()

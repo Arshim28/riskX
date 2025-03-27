@@ -265,13 +265,10 @@ class CorporateAgent(BaseAgent):
             
             if not corporate_results.get("success", False):
                 state["error"] = corporate_results.get("error", "Unknown error in corporate data collection")
-            
-            goto = "meta_agent"
-            if state.get("synchronous_pipeline", False):
-                goto = state.get("next_agent", "meta_agent")
+
                 
-            self._log_completion({**state, "goto": goto})
-            return {**state, "goto": goto}
+            self._log_completion({**state, "goto": "meta_agent"})
+            return {**state, "goto": "meta_agent"}
             
         except Exception as e:
             tb = traceback.format_exc()

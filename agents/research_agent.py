@@ -878,8 +878,15 @@ class ResearchAgent(BaseAgent):
             
             self.logger.info(f"Research completed for {company}")
             print(f"DEBUG: Research completed for {company}")
-            return {**state, "goto": "meta_agent", "research_agent_status": "DONE"}
+            return {
+                **state,
+                'goto': 'meta_agent',
+                'research_agent_status': 'DONE',
+                'research_results': final_results,
+                'event_metadata': event_metadata
+            }
             
+
         except Exception as e:
             error_msg = f"Unexpected error in research agent: {str(e)}"
             self.logger.error(error_msg)

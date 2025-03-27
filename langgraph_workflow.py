@@ -116,613 +116,10 @@ class WorkflowState(TypedDict):
     current_phase: str
 
 
-class ResearchPool(BaseAgent):
-    name = "research_pool"
-    
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__()
-        self.config = config
-        self.logger = get_logger(self.name)
-        
-        # Initialize component agents
-        debug_print("Initializing Research Agent")
-        self.research_agent = ResearchAgent(config)
-        debug_print("Initializing YouTube Agent")
-        self.youtube_agent = YouTubeAgent(config)
-        debug_print("Initializing Corporate Agent")
-        self.corporate_agent = CorporateAgent(config)
-        debug_print("Initializing RAG Agent")
-        self.rag_agent = RAGAgent(config)
-        
-        # Configuration parameters
-        self.max_parallel_agents = config.get("workflow", {}).get("max_parallel_agents", 3)
-        debug_print(f"ResearchPool initialized with max_parallel_agents={self.max_parallel_agents}")
-    
-    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Implements the abstract _execute method required by BaseAgent."""
-        debug_print(f"ResearchPool._execute called for company: {state.get('company', 'unknown')}")
-        return await self.run(state)
-    
-    async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Run the research pool with parallel execution of multiple agents.
-        This pool manages ResearchAgent, YouTubeAgent, and CorporateAgent.
-        """
-        debug_print(f"ResearchPool.run started for company: {state.get('company', 'unknown')}")
-        self._log_start(state)
-        
-        company = state.get("company", "")
-        if not company:
-            error_msg = "Company name is missing!"
-            self.logger.error(error_msg)
-            debug_print("ERROR: Company name is missing in ResearchPool.run", "ERROR")
-            raise WorkflowError(error_msg, agent_name=self.name)
-        
-        self.logger.info(f"Starting research pool for {company}")
-        
-        # Prepare a results container
-        pool_results = {
-            "research_results": {},
-            "corporate_results": {},
-            "youtube_results": {},
-            "rag_results": {},
-            "event_metadata": {}
-        }
-        
-        # Determine which agents to run in the new specified order
-        agents_to_run = []
-        
-        # 1. Run corporate agent if company information is needed and not already present
-        if not state.get("corporate_results"):
-            agents_to_run.append(self.corporate_agent)
-            debug_print(f"Added corporate_agent to agents_to_run")
-        
-        # 2. Run YouTube agent if video research is needed and not already present
-        if not state.get("youtube_results"):
-            agents_to_run.append(self.youtube_agent)
-            debug_print(f"Added youtube_agent to agents_to_run")
-            
-        # 3. Run RAG agent if enabled and not already processed
-        if not state.get("rag_results") and state.get("enable_rag", True):
-            debug_print(f"RAG is enabled: {state.get('enable_rag', True)}")
-            # Initialize RAG agent if needed
-            if not state.get("rag_initialized"):
-                debug_print("Initializing RAG agent")
-                # Prepare state for RAG agent
-                rag_state = {
-                    "command": "initialize",
-                    "vector_store_dir": state.get("vector_store_dir", "vector_store"),
-                    "company": state.get('company', "Unknown")
-                }
-                
-                # Initialize RAG agent
-                try:
-                    debug_print(f"Calling rag_agent.run with state: {rag_state}")
-                    init_result = await self.rag_agent.run(rag_state)
-                    debug_print(f"RAG initialization result: {init_result.get('initialized', False)}")
-                    if init_result.get("initialized", False):
-                        state["rag_initialized"] = True
-                        self.logger.info("RAG agent initialized successfully")
-                    else:
-                        error_msg = f"RAG agent initialization failed: {init_result.get('error')}"
-                        self.logger.error(error_msg)
-                        debug_print(error_msg, "ERROR")
-                        raise WorkflowError(error_msg, agent_name="rag_agent")
-                except Exception as e:
-                    error_msg = f"Error initializing RAG agent: {str(e)}"
-                    self.logger.error(error_msg)
-                    debug_print(error_msg, "ERROR")
-                    debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    raise WorkflowError(error_msg, agent_name="rag_agent", details=traceback.format_exc())
-            
-            # Add RAG agent to the pool if initialized
-            if state.get("rag_initialized", False):
-                agents_to_run.append(self.rag_agent)
-                debug_print(f"Added rag_agent to agents_to_run")
-        
-        # 4. Always add the research agent last
-        agents_to_run.append(self.research_agent)
-        debug_print(f"Added research_agent to agents_to_run")
-        
-        # Run agents concurrently
-        debug_print(f"Running {len(agents_to_run)} research agents concurrently")
-        self.logger.info(f"Running {len(agents_to_run)} research agents concurrently")
-        
-        # Create a ThreadPoolExecutor for parallel execution
-        debug_print(f"Creating ThreadPoolExecutor with max_workers={self.max_parallel_agents}")
-        with ThreadPoolExecutor(max_workers=self.max_parallel_agents) as executor:
-            # Function to process an agent
-            def process_agent(agent):
-                debug_print(f"process_agent started for agent: {agent.name}")
-                # Create a new event loop for this thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    # Special handling for RAG agent
-                    if agent.name == "rag_agent":
-                        debug_print(f"Preparing special handling for RAG agent")
-                        # Prepare RAG query based on company and research context
-                        rag_query = f"Provide key information and risk factors about {company}"
-                        if state.get("industry"):
-                            rag_query += f" in the {state['industry']} industry"
-                            
-                        # Create RAG state
-                        rag_state = {
-                            **state,
-                            "command": "query",
-                            "query": rag_query
-                        }
-                        
-                        # Add special error handling for RAG agent
-                        try:
-                            debug_print(f"Calling rag_agent.run with query: {rag_query}")
-                            agent_result = loop.run_until_complete(agent.run(rag_state))
-                            debug_print(f"RAG agent run completed")
-                            
-                            # Check for "no documents" error and convert to a non-error state
-                            if agent_result.get("rag_status") == "ERROR" and "No documents loaded" in agent_result.get("error", ""):
-                                debug_print("RAG agent 'No documents loaded' is non-critical - converting to success state")
-                                # Convert to a non-error result
-                                agent_result = {
-                                    **agent_result,
-                                    "rag_status": "NO_DOCUMENTS",
-                                    "error": None,  # Clear error
-                                    "retrieval_results": {
-                                        "success": False,
-                                        "message": "No documents available in vector store"
-                                    },
-                                    "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
-                                }
-                        except Exception as e:
-                            debug_print(f"Caught error in RAG agent execution: {str(e)}", "WARNING")
-                            
-                            # Check if this is a "no documents" error that we can handle
-                            if "No documents loaded" in str(e):
-                                debug_print("RAG agent 'No documents loaded' is non-critical - creating fallback result")
-                                agent_result = {
-                                    "rag_status": "NO_DOCUMENTS",
-                                    "error": None,  # Important: don't set an error
-                                    "retrieval_results": {
-                                        "success": False,
-                                        "message": f"No documents available: {str(e)}"
-                                    },
-                                    "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
-                                }
-                            else:
-                                # For other types of errors, re-raise
-                                raise
-                    else:
-                        # Run other agents normally
-                        debug_print(f"Calling {agent.name}.run")
-                        agent_result = loop.run_until_complete(agent.run(state))
-                        debug_print(f"{agent.name} run completed")
-                    
-                    loop.close()
-                    debug_print(f"process_agent completed for agent: {agent.name}")
-                    
-                    # Check for errors in the result and raise an exception
-                    # Modified to ignore non-critical RAG errors
-                    if "error" in agent_result and agent_result["error"] and not (
-                        agent.name == "rag_agent" and 
-                        agent_result.get("rag_status") in ["NO_DOCUMENTS", "NO_VECTOR_STORE"]
-                    ):
-                        error_msg = f"Error in {agent.name}: {agent_result['error']}"
-                        debug_print(error_msg, "ERROR")
-                        raise WorkflowError(error_msg, agent_name=agent.name)
-                        
-                    return agent.name, agent_result
-                except Exception as e:
-                    loop.close()
-                    error_msg = f"Error running {agent.name}: {str(e)}"
-                    self.logger.error(error_msg)
-                    debug_print(error_msg, "ERROR")
-                    debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    
-                    # Special case for RAG agent "No documents" errors - don't propagate these
-                    if agent.name == "rag_agent" and "No documents loaded" in str(e):
-                        debug_print("RAG agent 'No documents loaded' is non-critical - creating fallback result", "WARNING")
-                        fallback_result = {
-                            "rag_status": "NO_DOCUMENTS",
-                            "error": None,  # Important: don't set an error
-                            "retrieval_results": {
-                                "success": False,
-                                "message": f"No documents available: {str(e)}"
-                            },
-                            "response": f"No document-based information is available for {company}. Analysis will be based on other sources."
-                        }
-                        return agent.name, fallback_result
-                    
-                    # Propagate the original error if it's already a WorkflowError
-                    if isinstance(e, WorkflowError):
-                        raise e
-                    # Otherwise wrap it in a WorkflowError
-                    raise WorkflowError(
-                        f"Error in {agent.name}: {str(e)}", 
-                        agent_name=agent.name,
-                        details=traceback.format_exc()
-                    )            
-            # Submit all agents to the thread pool
-            debug_print(f"Submitting {len(agents_to_run)} agents to thread pool")
-            future_results = {executor.submit(process_agent, agent): agent for agent in agents_to_run}
-            
-            # Process completed agents as they finish
-            debug_print(f"Processing results as agents complete")
-            for future in future_results:
-                try:
-                    debug_print(f"Getting result for a completed agent")
-                    agent_name, agent_result = future.result()
-                    debug_print(f"Got result for agent: {agent_name}")
-                    
-                    # Extract and merge results based on agent type
-                    if agent_name == "research_agent":
-                        if "research_results" in agent_result:
-                            pool_results["research_results"] = agent_result["research_results"]
-                            debug_print(f"Extracted research_results with {len(agent_result['research_results'])} items")
-                        if "event_metadata" in agent_result:
-                            pool_results["event_metadata"] = agent_result["event_metadata"]
-                            debug_print(f"Extracted event_metadata")
-                        
-                    elif agent_name == "corporate_agent":
-                        if "corporate_results" in agent_result:
-                            pool_results["corporate_results"] = agent_result["corporate_results"]
-                            debug_print(f"Extracted corporate_results")
-                            
-                    elif agent_name == "youtube_agent":
-                        if "youtube_results" in agent_result:
-                            pool_results["youtube_results"] = agent_result["youtube_results"]
-                            debug_print(f"Extracted youtube_results")
-                    
-                    elif agent_name == "rag_agent":
-                        # Process RAG agent results
-                        if agent_result.get("rag_status") == "RESPONSE_READY":
-                            # Store RAG results
-                            pool_results["rag_results"] = {
-                                "response": agent_result.get("response", ""),
-                                "retrieval_results": agent_result.get("retrieval_results", {}),
-                                "query": agent_result.get("query", "")
-                            }
-                            debug_print(f"Extracted rag_results")
-                    
-                except Exception as e:
-                    error_msg = f"Error processing agent result: {str(e)}"
-                    self.logger.error(error_msg)
-                    debug_print(error_msg, "ERROR")
-                    debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    
-                    # Propagate the original error if it's already a WorkflowError
-                    if isinstance(e, WorkflowError):
-                        raise e
-                    # Otherwise wrap it in a WorkflowError
-                    raise WorkflowError(
-                        error_msg, 
-                        agent_name=future_results[future].name,
-                        details=traceback.format_exc()
-                    )
-        
-        # Combine all results
-        debug_print(f"Combining results from all agents")
-        updated_state = {**state}
-        
-        # Update state with pool results
-        for key, value in pool_results.items():
-            if value:  # Only update if we have results
-                updated_state[key] = value
-                debug_print(f"Updated state with {key}")
-        
-        # Set status for all agents
-        updated_state["research_agent_status"] = "DONE" if "research_results" in pool_results else state.get("research_agent_status", "UNKNOWN")
-        updated_state["corporate_agent_status"] = "DONE" if "corporate_results" in pool_results else state.get("corporate_agent_status", "UNKNOWN")
-        updated_state["youtube_agent_status"] = "DONE" if "youtube_results" in pool_results else state.get("youtube_agent_status", "UNKNOWN")
-        updated_state["rag_agent_status"] = "DONE" if "rag_results" in pool_results else state.get("rag_agent_status", "UNKNOWN")
-        
-        # Return to meta_agent for next steps
-        updated_state["goto"] = "meta_agent"
-        debug_print(f"ResearchPool.run completed, returning to meta_agent")
-        
-        return updated_state
-
-class AnalystPool(BaseAgent):
-    name = "analyst_pool"
-    
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__()
-        self.config = config
-        self.logger = get_logger(self.name)
-        
-        # Initialize the analyst agent
-        debug_print("Initializing Analyst Agent")
-        self.analyst_agent = AnalystAgent(config)
-        
-        # Configuration parameters
-        self.max_workers = config.get("workflow", {}).get("analyst_pool_size", 5)
-        debug_print(f"AnalystPool initialized with max_workers={self.max_workers}")
-        
-    async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Implements the abstract _execute method required by BaseAgent."""
-        debug_print(f"AnalystPool._execute called for company: {state.get('company', 'unknown')}")
-        return await self.run(state)
-    
-    async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Run the analyst pool to process analytical tasks in parallel.
-        This pool manages analytical tasks using multiple analyst agent instances.
-        """
-        debug_print(f"AnalystPool.run started for company: {state.get('company', 'unknown')}")
-        self._log_start(state)
-        
-        company = state.get("company", "")
-        if not company:
-            error_msg = "Company name is missing!"
-            self.logger.error(error_msg)
-            debug_print("ERROR: Company name is missing in AnalystPool.run", "ERROR")
-            raise WorkflowError(error_msg, agent_name=self.name)
-        
-        # Get analyst tasks
-        tasks = state.get("analyst_tasks", [])
-        
-        # If no tasks are specified but we have research results, create tasks from events
-        if not tasks and "research_results" in state:
-            debug_print("No analyst tasks provided, creating from research results")
-            research_results = state.get("research_results", {})
-            tasks = self._create_tasks_from_research(research_results)
-            self.logger.info(f"Created {len(tasks)} analyst tasks from research results")
-            debug_print(f"Created {len(tasks)} analyst tasks from research results")
-        
-        if not tasks:
-            error_msg = "No analyst tasks to process"
-            self.logger.error(error_msg)
-            debug_print("ERROR: No analyst tasks to process", "ERROR")
-            raise WorkflowError(error_msg, agent_name=self.name)
-        
-        # Initialize results
-        results = {}
-        
-        # Run tasks in parallel with thread pool
-        self.logger.info(f"Processing {len(tasks)} analyst tasks with up to {self.max_workers} workers")
-        debug_print(f"Processing {len(tasks)} analyst tasks with up to {self.max_workers} workers")
-        
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Function to process a task
-            def process_task(task):
-                debug_print(f"process_task started for event: {task.get('event_name', 'unknown')}")
-                event_name = task.get("event_name")
-                event_data = task.get("event_data")
-                
-                # Skip invalid tasks
-                if not event_name or not event_data:
-                    error_msg = f"Invalid task: missing event_name or event_data"
-                    debug_print(error_msg, "ERROR")
-                    raise WorkflowError(error_msg, agent_name=self.name)
-                
-                # Create a new analyst agent for this task (to avoid state conflicts)
-                debug_print(f"Creating new AnalystAgent for task: {event_name}")
-                task_agent = AnalystAgent(self.config)
-                
-                # Create a new event loop for this thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    # Process the event
-                    debug_print(f"Calling process_event for: {event_name}")
-                    task_result = loop.run_until_complete(task_agent.process_event(
-                        company, event_name, event_data
-                    ))
-                    debug_print(f"process_event completed for: {event_name}")
-                    loop.close()
-                    return event_name, task_result
-                except Exception as e:
-                    loop.close()
-                    error_msg = f"Error processing event {event_name}: {str(e)}"
-                    debug_print(error_msg, "ERROR")
-                    debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    
-                    # Propagate the original error if it's already a WorkflowError
-                    if isinstance(e, WorkflowError):
-                        raise e
-                    # Otherwise wrap it in a WorkflowError
-                    raise WorkflowError(
-                        error_msg,
-                        agent_name="analyst_agent",
-                        details=traceback.format_exc()
-                    )
-            
-            # Submit all tasks to the thread pool
-            debug_print(f"Submitting {len(tasks)} tasks to thread pool")
-            future_results = {executor.submit(process_task, task): task for task in tasks}
-            
-            # Process completed tasks as they finish
-            debug_print(f"Processing results as tasks complete")
-            for future in future_results:
-                try:
-                    debug_print(f"Getting result for a completed task")
-                    event_name, task_result = future.result()
-                    if event_name:  # Skip results with no event name
-                        debug_print(f"Got result for event: {event_name}")
-                        
-                        # Check for errors in the task result
-                        if isinstance(task_result, dict) and "error" in task_result and task_result["error"]:
-                            error_msg = f"Error in task for event {event_name}: {task_result['error']}"
-                            debug_print(error_msg, "ERROR")
-                            raise WorkflowError(error_msg, agent_name=self.name)
-                            
-                        results[event_name] = task_result
-                except Exception as e:
-                    error_msg = f"Error in task execution: {str(e)}"
-                    self.logger.error(error_msg)
-                    debug_print(error_msg, "ERROR")
-                    debug_print(f"Traceback: {traceback.format_exc()}", "ERROR")
-                    
-                    # Propagate the original error if it's already a WorkflowError
-                    if isinstance(e, WorkflowError):
-                        raise e
-                    # Otherwise wrap it in a WorkflowError
-                    raise WorkflowError(
-                        error_msg,
-                        agent_name=self.name,
-                        details=traceback.format_exc()
-                    )
-        
-        # Combine the results into a structured analysis result
-        debug_print(f"Combining results from {len(results)} tasks")
-        analysis_results = self._combine_analysis_results(results, state)
-        
-        # Update state with analysis results
-        updated_state = {
-            **state,
-            "goto": "meta_agent",
-            "analyst_agent_status": "DONE",
-            "analysis_results": analysis_results,
-            "analyst_task_results": results
-        }
-        
-        self.logger.info(f"Analyst pool completed processing {len(tasks)} tasks")
-        debug_print(f"AnalystPool.run completed, processed {len(tasks)} tasks")
-        return updated_state
-    
-    def _create_tasks_from_research(self, research_results: Dict[str, List[Dict]]) -> List[Dict]:
-        """Create analysis tasks from research results."""
-        debug_print(f"Creating tasks from research results with {len(research_results)} events")
-        tasks = []
-        
-        for event_name, event_articles in research_results.items():
-            # Skip events with no articles
-            if not event_articles:
-                debug_print(f"Skipping event with no articles: {event_name}")
-                continue
-                
-            # Create a task for this event
-            debug_print(f"Creating task for event: {event_name} with {len(event_articles)} articles")
-            tasks.append({
-                "event_name": event_name,
-                "event_data": event_articles,
-                "analysis_type": "standard"
-            })
-        
-        return tasks
-    
-    def _combine_analysis_results(self, task_results: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
-        """Combine individual task results into a comprehensive analysis result."""
-        debug_print(f"Combining analysis results from {len(task_results)} tasks")
-        combined_results = {
-            "event_synthesis": {},
-            "forensic_insights": {},
-            "timeline": [],
-            "red_flags": [],
-            "entity_network": {},
-            "rag_insights": {}
-        }
-        
-        # Merge existing analysis results if available
-        if "analysis_results" in state and state["analysis_results"]:
-            debug_print(f"Merging with existing analysis results")
-            for key in combined_results.keys():
-                if key in state["analysis_results"]:
-                    combined_results[key] = state["analysis_results"][key]
-        
-        # Add task results
-        for event_name, result in task_results.items():
-            # Skip failed tasks
-            if "error" in result and result["error"]:
-                error_msg = f"Error in task result for {event_name}: {result['error']}"
-                debug_print(error_msg, "ERROR")
-                raise WorkflowError(error_msg, agent_name=self.name)
-                
-            # Add to event synthesis
-            if "event_synthesis" in result:
-                combined_results["event_synthesis"][event_name] = result["event_synthesis"]
-                debug_print(f"Added event synthesis for: {event_name}")
-                
-            # Add to forensic insights
-            if "forensic_insights" in result:
-                combined_results["forensic_insights"][event_name] = result["forensic_insights"]
-                debug_print(f"Added forensic insights for: {event_name}")
-                
-            # Add to timeline events
-            if "timeline" in result:
-                timeline_items = 0
-                for event in result.get("timeline", []):
-                    if isinstance(event, dict) and "date" in event and "event" in event:
-                        combined_results["timeline"].append(event)
-                        timeline_items += 1
-                debug_print(f"Added {timeline_items} timeline items for: {event_name}")
-                        
-            # Add to red flags
-            if "red_flags" in result:
-                flags_added = 0
-                for flag in result.get("red_flags", []):
-                    if flag and flag not in combined_results["red_flags"]:
-                        combined_results["red_flags"].append(flag)
-                        flags_added += 1
-                debug_print(f"Added {flags_added} red flags for: {event_name}")
-            
-            # Add entity information if available
-            if "entity_network" in result:
-                entities = len(result.get("entity_network", {}))
-                combined_results["entity_network"].update(result.get("entity_network", {}))
-                debug_print(f"Added {entities} entities for: {event_name}")
-        
-        # Sort timeline by date if possible
-        try:
-            debug_print(f"Sorting timeline with {len(combined_results['timeline'])} items")
-            combined_results["timeline"] = sorted(
-                combined_results["timeline"],
-                key=lambda x: datetime.strptime(x.get("date", "2000-01-01"), "%Y-%m-%d")
-            )
-            debug_print(f"Timeline sorted successfully")
-        except Exception as e:
-            # If sorting fails (e.g., due to date format), don't sort
-            error_msg = f"Error sorting timeline: {str(e)}"
-            debug_print(error_msg, "WARNING")
-            debug_print(f"Traceback: {traceback.format_exc()}", "WARNING")
-            # We don't need to raise an exception here since sorting failure
-            # isn't critical to the overall process
-        
-        # Integrate RAG results if available
-        if "rag_results" in state and state["rag_results"]:
-            debug_print(f"Integrating RAG results")
-            rag_response = state["rag_results"].get("response", "")
-            if rag_response:
-                # Add RAG insights to the combined results
-                combined_results["rag_insights"] = {
-                    "response": rag_response,
-                    "query": state["rag_results"].get("query", ""),
-                    "sources": []
-                }
-                debug_print(f"Added RAG response with {len(rag_response)} characters")
-                
-                # Extract source information
-                retrieval_results = state["rag_results"].get("retrieval_results", {})
-                sources_added = 0
-                for result in retrieval_results.get("results", []):
-                    if result.get("metadata"):
-                        source_info = {
-                            "source": result.get("metadata", {}).get("source", "Unknown"),
-                            "page": result.get("metadata", {}).get("page", "Unknown"),
-                            "relevance": result.get("score", 0)
-                        }
-                        combined_results["rag_insights"]["sources"].append(source_info)
-                        sources_added += 1
-                debug_print(f"Added {sources_added} RAG sources")
-                
-                # Extract any additional red flags from RAG response
-                if rag_response and "red flag" in rag_response.lower():
-                    flags_added = 0
-                    # Simple extraction of lines containing "red flag"
-                    for line in rag_response.split("\n"):
-                        if "red flag" in line.lower() and len(line) > 15:  # Ensure it's a meaningful line
-                            flag = line.strip()
-                            if flag not in combined_results["red_flags"]:
-                                combined_results["red_flags"].append(flag)
-                                flags_added += 1
-                    debug_print(f"Extracted {flags_added} red flags from RAG response")
-        
-        return combined_results
-
-
 class EnhancedForensicWorkflow(BaseGraph):
     """
-    Enhanced workflow implementing a true agent-based architecture with centralized orchestration.
-    This refactored version follows the simplified design with agent pools and MetaAgent orchestration.
+    Enhanced workflow implementing a direct agent-based architecture with no pool structure.
+    Each agent is a standalone node in the workflow graph with centralized orchestration.
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -748,22 +145,37 @@ class EnhancedForensicWorkflow(BaseGraph):
             raise
         
         try:
-            # Initialize agents and pools
+            # Initialize all agents directly
             debug_print("Initializing MetaAgent")
             self.meta_agent = MetaAgent(self.config)
-            debug_print("Initializing ResearchPool")
-            self.research_pool = ResearchPool(self.config)
-            debug_print("Initializing AnalystPool")
-            self.analyst_pool = AnalystPool(self.config)
+            
+            debug_print("Initializing ResearchAgent")
+            self.research_agent = ResearchAgent(self.config)
+            
+            debug_print("Initializing CorporateAgent")
+            self.corporate_agent = CorporateAgent(self.config)
+            
+            debug_print("Initializing YouTubeAgent")
+            self.youtube_agent = YouTubeAgent(self.config)
+            
+            debug_print("Initializing RAGAgent")
+            self.rag_agent = RAGAgent(self.config)
+            
+            debug_print("Initializing AnalystAgent")
+            self.analyst_agent = AnalystAgent(self.config)
+            
             debug_print("Initializing WriterAgent")
             self.writer_agent = WriterAgent(self.config)
             
-            # Initialize agent mapping
+            # Initialize agent mapping with all individual agents
             debug_print("Setting up agent mapping")
             self.agents = {
                 "meta_agent": self.meta_agent,
-                "research_pool": self.research_pool,
-                "analyst_pool": self.analyst_pool,
+                "research_agent": self.research_agent,
+                "corporate_agent": self.corporate_agent,
+                "youtube_agent": self.youtube_agent,
+                "rag_agent": self.rag_agent,
+                "analyst_agent": self.analyst_agent,
                 "writer_agent": self.writer_agent,
                 "meta_agent_final": self.meta_agent  # Use same instance with different node name
             }
@@ -813,17 +225,17 @@ class EnhancedForensicWorkflow(BaseGraph):
     
     def build_graph(self) -> CompiledGraph:
         """
-        Build the enhanced workflow graph with a true agent-based architecture.
-        This simplified design has MetaAgent as the central orchestrator with agent pools.
+        Build the enhanced workflow graph with a direct agent-based architecture.
+        Each agent is a separate node with the meta_agent as the central orchestrator.
         """
         debug_print("Starting build_graph")
         try:
-            # State and workflow settings
+            # Create state graph
             debug_print("Creating StateGraph")
             workflow = StateGraph(WorkflowState)
             debug_print("StateGraph created successfully")
             
-            # Add nodes for each agent/pool
+            # Add nodes for each individual agent
             debug_print(f"Adding {len(self.agents)} nodes to graph")
             for agent_name, agent in self.agents.items():
                 debug_print(f"Adding node: {agent_name}")
@@ -833,27 +245,30 @@ class EnhancedForensicWorkflow(BaseGraph):
             debug_print("Setting entry point to meta_agent")
             workflow.set_entry_point("meta_agent")
             
-            # MetaAgent is the central orchestration point
-            # It connects to all agent pools and receives control back after each pool completes
-            
-            # Connect meta_agent to other agents/pools based on routing logic
+            # Central routing from meta_agent to all other agents
             debug_print("Adding conditional edges from meta_agent")
             workflow.add_conditional_edges(
                 "meta_agent",
                 self.route_from_meta_agent,
                 {
-                    "research_pool": "research_pool",
-                    "analyst_pool": "analyst_pool",
+                    "research_agent": "research_agent",
+                    "corporate_agent": "corporate_agent",
+                    "youtube_agent": "youtube_agent",
+                    "rag_agent": "rag_agent",
+                    "analyst_agent": "analyst_agent",
                     "writer_agent": "writer_agent",
                     "meta_agent_final": "meta_agent_final",
                     "END": END
                 }
             )
             
-            # All other agents/pools return to meta_agent
-            debug_print("Adding edges from pools back to meta_agent")
-            workflow.add_edge("research_pool", "meta_agent")
-            workflow.add_edge("analyst_pool", "meta_agent")
+            # All agents return to meta_agent
+            debug_print("Adding edges from all agents back to meta_agent")
+            workflow.add_edge("research_agent", "meta_agent")
+            workflow.add_edge("corporate_agent", "meta_agent")
+            workflow.add_edge("youtube_agent", "meta_agent")
+            workflow.add_edge("rag_agent", "meta_agent")
+            workflow.add_edge("analyst_agent", "meta_agent")
             workflow.add_edge("writer_agent", "meta_agent")
             
             # Final meta_agent node connects to END
@@ -1051,50 +466,107 @@ class EnhancedForensicWorkflow(BaseGraph):
     
     def route_from_meta_agent(self, state: WorkflowState) -> str:
         """
-        Centralized routing logic from meta_agent to next node.
-        All routing decisions are now made in the MetaAgent based on the current phase.
+        Centralized routing logic from meta_agent to next agent.
+        All routing decisions are made here based on the current workflow phase and agent statuses.
         """
         debug_print(f"route_from_meta_agent called, current phase: {state.get('current_phase', 'UNKNOWN')}")
         
         # Check for errors - stop execution if any error is found
         if "error" in state and state["error"]:
-                # Check if this is a RAG "No documents" error - not a critical error
-                if "rag_agent" in state.get("goto", "") and "No documents loaded" in state["error"]:
-                    debug_print("Ignoring non-critical RAG error: No documents loaded", "WARNING")
-                    # Clear the error and continue the workflow
-                    state["error"] = None
-                else:
-                    # For other errors, stop the workflow
-                    error_msg = f"Stopping workflow due to error: {state['error']}"
-                    debug_print(error_msg, "ERROR")
-                    # Stop the workflow by going to END
-                    return "END"
+            # Check if this is a RAG "No documents" error - not a critical error
+            if "rag_agent" in state.get("goto", "") and "No documents loaded" in state["error"]:
+                debug_print("Ignoring non-critical RAG error: No documents loaded", "WARNING")
+                # Clear the error and continue the workflow
+                state["error"] = None
+            else:
+                # For other errors, stop the workflow
+                error_msg = f"Stopping workflow due to error: {state['error']}"
+                debug_print(error_msg, "ERROR")
+                # Stop the workflow by going to END
+                return "END"
         
         # Check for explicit routing in the goto field
         goto = state.get("goto")
         debug_print(f"State goto field: {goto}")
         
-        if goto in ["research_pool", "analyst_pool", "writer_agent", "meta_agent_final", "END"]:
+        if goto in ["research_agent", "corporate_agent", "youtube_agent", "rag_agent", 
+                   "analyst_agent", "writer_agent", "meta_agent_final", "END"]:
             debug_print(f"Routing to explicit goto: {goto}")
-            return goto
+            # We'll now store the goto value for debugging but not clear it yet
+            # This allows us to handle the logic for YouTube first and then clear
+            current_goto = goto
+            return current_goto
         
-        # Check current phase to determine routing
+        # Handle phase transitions and routing based on current phase
         current_phase = state.get("current_phase", "RESEARCH")
         
         if current_phase == "RESEARCH":
-            # In research phase, route to research pool
-            debug_print("Routing to research_pool based on RESEARCH phase")
-            return "research_pool"
+            # In research phase, route to research agents
+            # First check if phase is complete
+            research_complete = (
+                state.get("research_agent_status") == "DONE" and
+                state.get("corporate_agent_status") == "DONE" and
+                state.get("youtube_agent_status") == "DONE" and
+                (state.get("rag_agent_status") == "DONE" or not state.get("enable_rag", True))
+            )
+            
+            if research_complete:
+                # All research agents done, transition to ANALYSIS phase
+                debug_print("All research agents completed, transitioning to ANALYSIS phase")
+                state["current_phase"] = "ANALYSIS"
+                return "analyst_agent"
+            
+            # Get priorities from MetaAgent
+            agent_priorities = {
+                "research_agent": 60,
+                "youtube_agent": 90,
+                "corporate_agent": 80,
+                "rag_agent": 70
+            }
+            
+            # Create a list of incomplete agents
+            incomplete_agents = []
+            if state.get("research_agent_status") != "DONE":
+                incomplete_agents.append("research_agent")
+            if state.get("corporate_agent_status") != "DONE":
+                incomplete_agents.append("corporate_agent")
+            if state.get("youtube_agent_status") != "DONE":
+                incomplete_agents.append("youtube_agent")
+            if state.get("rag_agent_status") != "DONE" and state.get("enable_rag", True):
+                incomplete_agents.append("rag_agent")
+                
+            # Sort agents by priority (higher first)
+            sorted_agents = sorted(incomplete_agents, key=lambda x: agent_priorities.get(x, 0), reverse=True)
+            
+            if sorted_agents:
+                next_agent = sorted_agents[0]
+                debug_print(f"Routing to {next_agent} (priority: {agent_priorities.get(next_agent, 0)})")
+                debug_print(f"Prioritized agent order: {sorted_agents}")
+                return next_agent
+                
+            # If we get here, all agents are done or disabled
         
         elif current_phase == "ANALYSIS":
-            # In analysis phase, route to analyst pool
-            debug_print("Routing to analyst_pool based on ANALYSIS phase")
-            return "analyst_pool"
+            # In analysis phase, route to analyst agent
+            if state.get("analyst_agent_status") != "DONE":
+                debug_print("Routing to analyst_agent")
+                return "analyst_agent"
+            else:
+                # Analysis complete, transition to REPORT_GENERATION phase
+                debug_print("Analysis complete, transitioning to REPORT_GENERATION phase")
+                state["current_phase"] = "REPORT_GENERATION"
+                return "writer_agent"
         
         elif current_phase == "REPORT_GENERATION":
             # In report generation phase, route to writer agent
-            debug_print("Routing to writer_agent based on REPORT_GENERATION phase")
-            return "writer_agent"
+            if state.get("writer_agent_status") != "DONE":
+                debug_print("Routing to writer_agent")
+                return "writer_agent"
+            else:
+                # Report generation complete, transition to COMPLETE phase
+                debug_print("Report generation complete, transitioning to COMPLETE phase")
+                state["current_phase"] = "COMPLETE"
+                return "meta_agent_final"
         
         elif current_phase == "REPORT_REVIEW":
             # In report review phase, route to final meta agent
@@ -1232,7 +704,7 @@ class EnhancedForensicWorkflow(BaseGraph):
             "company": "",
             "industry": None,
             "meta_iteration": 0,
-            "goto": "meta_agent",
+            "goto": None,
             "error": None,
             "meta_agent_status": None,
             "research_agent_status": None,
@@ -1273,7 +745,7 @@ class EnhancedForensicWorkflow(BaseGraph):
             "agent_results": {},
             "analyst_tasks": [],
             "analyst_task_results": {},
-            "execution_mode": "parallel",
+            "execution_mode": "sequential",  # Changed from parallel to sequential
             "current_phase": "RESEARCH"  # Initial phase
         }
         

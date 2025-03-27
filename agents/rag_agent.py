@@ -563,9 +563,9 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "INITIALIZED" if success else "ERROR",
-                    "initialized": success,
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE" if success else "ERROR",
+                    "rag_initialized": success,
                     "error": None if success else "Failed to initialize RAG agent"
                 }
                 
@@ -576,8 +576,8 @@ class RAGAgent(BaseAgent):
                 if not pdf_path:
                     return {
                         **state,
-                        "goto": state.get("goto", "END"),
-                        "rag_status": "ERROR",
+                        "goto": "meta_agent",
+                        "rag_agent_status": "ERROR",
                         "error": "No PDF path provided"
                     }
                 
@@ -588,8 +588,8 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "DOCUMENT_ADDED" if success else "ERROR",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE" if success else "ERROR",
                     "document_added": success,
                     "error": None if success else f"Failed to add document: {pdf_path}"
                 }
@@ -599,8 +599,8 @@ class RAGAgent(BaseAgent):
                 if not directory:
                     return {
                         **state,
-                        "goto": state.get("goto", "END"),
-                        "rag_status": "ERROR",
+                        "goto": "meta_agent",
+                        "rag_agent_status": "ERROR",
                         "error": "No directory provided for saving"
                     }
                 
@@ -608,8 +608,8 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "SAVED" if success else "ERROR",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE" if success else "ERROR",
                     "saved": success,
                     "error": None if success else f"Failed to save to directory: {directory}"
                 }
@@ -619,8 +619,8 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "INFO",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",
                     "vector_store_info": info
                 }
                 
@@ -632,8 +632,8 @@ class RAGAgent(BaseAgent):
                 if not query:
                     return {
                         **state,
-                        "goto": state.get("goto", "END"),
-                        "rag_status": "ERROR",
+                        "goto": "meta_agent",
+                        "rag_agent_status": "ERROR",
                         "error": "No query provided"
                     }
                 
@@ -643,14 +643,15 @@ class RAGAgent(BaseAgent):
                 if not self.loaded_documents:
                     return {
                         **state,
-                        "goto": state.get("goto", "END"),
-                        "rag_status": "NO_DOCUMENTS",
-                        "retrieval_results": {
-                            "success": False,
-                            "message": "No documents loaded in vector store"
-                        },
-
-                        "response": f"No document-based information is available about {query}"
+                        "goto": "meta_agent",
+                        "rag_agent_status": "DONE",  # Changed from NO_DOCUMENTS to DONE
+                        "rag_results": {
+                            "retrieval_results": {
+                                "success": False,
+                                "message": "No documents loaded in vector store"
+                            },
+                            "response": f"No document-based information is available about {query}"
+                        }
                     }
                 
                 retrieval_results = await self.answer_query(
@@ -668,11 +669,14 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "RESPONSE_READY",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",  
                     "query": query,
-                    "retrieval_results": retrieval_results,
-                    "response": response
+                    "rag_results": {
+                        "retrieval_results": retrieval_results,
+                        "response": response,
+                        "query": query
+                    }
                 }
                 
             elif command == "list_topics":
@@ -680,8 +684,8 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "TOPICS_LISTED",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",
                     "topics_result": topics_result
                 }
                 
@@ -690,8 +694,8 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "DOCUMENTS_CATEGORIZED",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",
                     "categorization_result": categorization_result
                 }
                 
@@ -701,8 +705,8 @@ class RAGAgent(BaseAgent):
                 if not topic:
                     return {
                         **state,
-                        "goto": state.get("goto", "END"),
-                        "rag_status": "ERROR",
+                        "goto": "meta_agent",
+                        "rag_agent_status": "ERROR",
                         "error": "No topic provided"
                     }
                 
@@ -710,26 +714,42 @@ class RAGAgent(BaseAgent):
                 
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "TOPIC_REPORT_READY",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",
                     "topic_report": report_result
                 }
                 
             else:
                 return {
                     **state,
-                    "goto": state.get("goto", "END"),
-                    "rag_status": "ERROR",
+                    "goto": "meta_agent",
+                    "rag_agent_status": "ERROR",
                     "error": f"Unknown command: {command}"
                 }
                 
         except Exception as e:
             self.logger.error(f"Error in RAG agent: {str(e)}")
+            
+            # Special handling for "No documents" error - treat as non-critical
+            if "No documents loaded" in str(e):
+                return {
+                    **state,
+                    "goto": "meta_agent",
+                    "rag_agent_status": "DONE",  # Success status
+                    "rag_results": {
+                        "retrieval_results": {
+                            "success": False,
+                            "message": f"No documents available: {str(e)}"
+                        },
+                        "response": f"No document-based information is available. Analysis will be based on other sources."
+                    }
+                }
+            
             return {
                 **state,
-                "goto": state.get("goto", "END"),
-                "rag_status": "ERROR",
+                "goto": "meta_agent",
+                "rag_agent_status": "ERROR",
                 "error": f"Error in RAG agent: {str(e)}"
             }
         finally:
-            self._log_completion(state)
+            self._log_completion({**state, "goto": "meta_agent"})

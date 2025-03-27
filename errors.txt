@@ -1,36 +1,49 @@
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c5884953850 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements: RetryError[<Future at 0x7c5884953c50 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/annual-reports?index=equities&symbol=TST: RetryError[<Future at 0x7c58849510d0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/annual-reports?index=equities&symbol=TST
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c58849490d0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c588494a050 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:40:46] Unexpected error for URL https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x7c588493e6d0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:40:46] Unable to retrieve data from: https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:40:46] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
-[2025-03-25 16:40:46] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
-[2025-03-25 16:40:46] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
-[2025-03-25 16:40:46] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
-[2025-03-25 16:40:46] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
-[2025-03-25 16:40:46] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/annual-reports?index=equities&symbol=TST: RetryError[<Future at 0x788dbefde990 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/annual-reports?index=equities&symbol=TST
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe5f5ef0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-board-meetings?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe543350 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements: RetryError[<Future at 0x788dbe543cd0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/XBRL-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.&type=announcements
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe542ad0 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporate-announcements?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:42:36] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
-[2025-03-25 16:42:36] Unexpected error for URL https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.: RetryError[<Future at 0x788dbe547650 state=finished raised ClientConnectorDNSError>]
-[2025-03-25 16:42:36] Unable to retrieve data from: https://test.example.com/api/corporates-corporateActions?index=equities&from_date=25-03-2024&to_date=25-03-2025&symbol=TST&issuer=Test%20Company%20Inc.
-[2025-03-25 16:42:36] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+#Postgres Errors
+
+DEBUG [INFO] 2025-03-27T22:29:30.540672: run_agent async function started for: meta_agent
+DEBUG [INFO] 2025-03-27T22:29:30.540696: Executing agent.run for: meta_agent
+{"timestamp": "2025-03-27T22:29:30.543549", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Starting meta_agent for Bajaj with state: {\"company\": \"Bajaj\", \"industry\": \"Finance\", \"meta_iteration\": 1, \"user_approved\": false, \"user_feedback\": null, \"requires_user_approval\": false, \"user_approval_type\": null, \"error\": null, \"meta_agent_status\": null, \"research_agent_status\": \"DONE\", \"corporate_agent_status\": null, \"youtube_agent_status\": null, \"analyst_agent_status\": null, \"rag_agent_status\": null, \"writer_agent_status\": null, \"agent_results\": {}, \"research_plan\": [{\"objective\": \"Initial investigation into Bajaj\", \"key_areas_of_fo...", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.544844", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Starting iteration 2 for Bajaj", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.545179", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent research_agent status: RUNNING -> DONE", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.545938", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding snapshot_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+/home/satyam/Desktop/riskX/tools/postgres_tool.py:538: RuntimeWarning: coroutine 'Connection._cancel' was never awaited
+  self.logger.warning(f"Error adding snapshot_data column: {str(column_err)}")
+Object allocated at (most recent call last):
+  File "/home/satyam/Desktop/riskX/.venv/lib/python3.13/site-packages/asyncpg/connection.py", lineno 1673
+    self._cancellations.add(self._loop.create_task(self._cancel(waiter)))
+{"timestamp": "2025-03-27T22:29:30.551539", "name": "forensic_workflow.postgres_tool", "level": "ERROR", "message": "Error executing query: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.553723", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding status_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.555326", "name": "forensic_workflow.postgres_tool", "level": "ERROR", "message": "Error executing query: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:30.557360", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding status_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+
+#Successfully find videos
+"timestamp": "2025-03-27T22:29:32.781615", "name": "forensic_workflow.youtube_tool", "level": "INFO", "message": "Found 5 videos for query: Bajaj Bajaj financial reporting earnings", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:32.782119", "name": "forensic_workflow.youtube_agent", "level": "INFO", "message": "Found 5 videos for query: Bajaj Bajaj financial reporting earnings", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:32.782418", "name": "forensic_workflow.youtube_agent", "level": "INFO", "message": "Found 5 videos for query: Bajaj Bajaj financial reporting earnings", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:32.782759", "name": "forensic_workflow.youtube_agent", "level": "INFO", "message": "Searching YouTube for: Bajaj Bajaj lawsuit legal issues", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:33.170280", "name": "forensic_workflow.youtube_tool", "level": "INFO", "message": "Found 5 videos for query: Bajaj Bajaj lawsuit legal issues", "path": "", "line": 0, "function":
+
+"timestamp": "2025-03-27T22:29:37.275606", "name": "forensic_workflow.youtube_tool", "level": "ERROR", "message": "Error fetching transcript: \nCould not retrieve a transcript for the video https://www.youtube.com/watch?v=7TKiJcNzC44! This is most likely caused by:\n\nSubtitles are disabled for this video\n\nIf you are sure that the described cause is not responsible for this error and that a transcript should be retrievable, please create an issue at https://github.com/jdepoix/youtube-transcript-api/issues. Please add which version of youtube_transcript_api you are using and provide the information needed to replicate the error. Also make sure that there are no open issues which already describe your problem!", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:37.276816", "name": "forensic_workflow.youtube_agent", "level": "WARNING", "message": "No transcript data received for video 7TKiJcNzC44", "path": "", "line": 0, "function": null}
+
+! Parsing errors, always:
+{"timestamp": "2025-03-27T22:29:48.235377", "name": "forensic_workflow.youtube_agent", "level": "ERROR", "message": "Failed to parse transcript analysis for d90sNfSXdt0 JSON: Expecting value: line 1 column 1 (char 0)", "path": "", "line": 0, "function": null}
+{"
+SON: Expecting value: line 1 column 1 (char 0)", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T22:29:48.236086", "name": "forensic_workflow.youtube_agent", "level": "INFO", "message": "Analyzing transcript for video: Kks9yQD6VvQ", "path": "", "line": 0, "function": null}
+Template directory not found for agent: youtube_agent
+Templates not found for youtube_agent/analyze_transcript
+Using default prompts for youtube_agent/analyze_transcript as templates were not found
+2025-03-27 22:29:48,236 - llm_provider - INFO - Calling chat-google-generative-ai with model models/gemini-2.0-flash
+Calling chat-google-generative-ai with model models/gemini-2.0-flash
+{"timestamp": "2025-03-27T22:29:50.561771", "name": "forensic_workflow.youtube_agent", "level": "ERROR", "message": "Failed to parse transcript analysis for Kks9yQD6VvQ JSON: Expecting value: line 1 column 1 (char 0)", "path": "", "line": 0, "function": null}
+
+# YouTube agent clearly failed, why did meta re route to YouTube again? Raise an error, and stop the process!!
+DEBUG [INFO] 2025-03-27T22:30:42.852263: agent.run completed for: meta_agent
+DEBUG [INFO] 2025-03-27T22:30:42.852345: Agent meta_agent completed in separate thread
+DEBUG [INFO] 2025-03-27T22:30:42.852358: Closing event loop for meta_agent
+DEBUG [INFO] 2025-03-27T22:30:42.852529: Got result from executor for meta_agent
+DEBUG [INFO] 2025-03-27T22:30:42.854515: route_from_meta_agent called, current phase: RESEARCH
+DEBUG [INFO] 2025-03-27T22:30:42.854547: State goto field: youtube_agent
+DEBUG [INFO] 2025-03-27T22:30:42.854560: Routing to explicit goto: youtube_agent
+DEBUG [INFO] 2025-03-27T22:30:42.855972: Executed node: unknown

@@ -57,27 +57,27 @@ class MetaAgent(BaseAgent):
         self.enable_recovery = config.get("meta_agent", {}).get("enable_recovery", True)
         self.parallel_execution = config.get("meta_agent", {}).get("parallel_execution", True)
         
-        # Agent dependency configuration
+        # Agent dependency configuration - updated for direct agent structure
         self.agent_dependencies = {
             "research_agent": [],
             "youtube_agent": [],
             "corporate_agent": [],
-            "analyst_agent": ["research_agent"],
             "rag_agent": [],
-            "writer_agent": ["analyst_agent", "corporate_agent"]
+            "analyst_agent": ["research_agent", "corporate_agent", "youtube_agent"],
+            "writer_agent": ["analyst_agent"]
         }
         
         # Agent priority configuration (higher number = higher priority)
         self.agent_priorities = {
-            "research_agent": 80,
-            "youtube_agent": 60,
-            "corporate_agent": 70,
-            "analyst_agent": 50,
-            "rag_agent": 40,
+            "research_agent": 60,
+            "youtube_agent": 90,
+            "corporate_agent": 80,
+            "rag_agent": 70,
+            "analyst_agent": 40,
             "writer_agent": 30
         }
         
-        # State tracking
+        # State tracking for individual agents
         self.agent_tasks = {}
         self.completed_agents = set()
         self.running_agents = set()
@@ -384,58 +384,104 @@ class MetaAgent(BaseAgent):
             "iteration": iteration,
             "agents": {},
             "overall_status": "IN_PROGRESS",
-            "current_phase": "Unknown",
+            "current_phase": state.get("current_phase", "RESEARCH"),
             "next_steps": [],
             "errors": [],
             "progress_percentage": 0,
             "state_timestamp": datetime.now().isoformat()
         }
         
-        total_agents = len(self.agent_tasks)
-        completed_count = len(self.completed_agents)
-        running_count = len(self.running_agents)
-        pending_count = len(self.pending_agents)
-        failed_count = len(self.failed_agents)
-        
-        if total_agents > 0:
-            status["progress_percentage"] = int((completed_count / total_agents) * 100)
-        
-        # Determine current workflow phase
-        if "research_results" not in state or not state["research_results"]:
-            status["current_phase"] = "Initial Research"
-        elif "analysis_results" not in state or not state["analysis_results"]:
-            status["current_phase"] = "Analysis"
-        elif "final_report" not in state or not state["final_report"]:
-            status["current_phase"] = "Report Generation"
-        else:
-            status["current_phase"] = "Complete"
-            status["overall_status"] = "DONE"
-        
-        # Gather detailed agent statuses
-        for agent_name, task in self.agent_tasks.items():
-            agent_status = {
-                "status": task.status,
-                "priority": task.priority,
-                "dependencies": task.dependencies,
-                "started_at": task.started_at,
-                "completed_at": task.completed_at,
-                "error": task.error,
-                "retries": task.retries
-            }
-            status["agents"][agent_name] = agent_status
+        # Track agent statuses
+        for agent_name in ["research_agent", "corporate_agent", "youtube_agent", "rag_agent", 
+                         "analyst_agent", "writer_agent"]:
+            status_field = f"{agent_name}_status"
+            agent_status = state.get(status_field)
             
-            if task.error:
-                status["errors"].append(f"{agent_name}: {task.error}")
+            status["agents"][agent_name] = {
+                "status": agent_status,
+                "started_at": self.agent_tasks[agent_name].started_at if agent_name in self.agent_tasks else None,
+                "completed_at": self.agent_tasks[agent_name].completed_at if agent_name in self.agent_tasks else None,
+                "error": state.get("error") if agent_status == "ERROR" else None
+            }
+            
+            if agent_status == "ERROR" and state.get("error"):
+                status["errors"].append(f"{agent_name}: {state.get('error')}")
         
-        # Determine next steps based on current state
-        if pending_count > 0:
-            status["next_steps"].append(f"Wait for {pending_count} pending agents to complete")
+        # Calculate progress percentage based on phase and agent completion
+        current_phase = state.get("current_phase", "RESEARCH")
         
-        if failed_count > 0:
-            status["next_steps"].append(f"Address {failed_count} failed agents")
+        # Define phase weights and agent weights within phases
+        phase_weights = {
+            "RESEARCH": 0.4,
+            "ANALYSIS": 0.3,
+            "REPORT_GENERATION": 0.2,
+            "REPORT_REVIEW": 0.05,
+            "COMPLETE": 0.05
+        }
         
-        if status["overall_status"] == "DONE":
+        phase_agents = {
+            "RESEARCH": ["research_agent", "corporate_agent", "youtube_agent", "rag_agent"],
+            "ANALYSIS": ["analyst_agent"],
+            "REPORT_GENERATION": ["writer_agent"],
+            "REPORT_REVIEW": [],
+            "COMPLETE": []
+        }
+        
+        # Calculate phase completion
+        phase_completion = {}
+        overall_progress = 0
+        
+        for phase, weight in phase_weights.items():
+            if phase == current_phase:
+                # Current phase - calculate partial completion
+                phase_agents_count = len(phase_agents[phase])
+                if phase_agents_count == 0:
+                    phase_completion[phase] = 1.0  # No agents means phase is complete
+                else:
+                    completed_count = sum(1 for agent in phase_agents[phase] 
+                                       if state.get(f"{agent}_status") == "DONE")
+                    phase_completion[phase] = completed_count / phase_agents_count
+                
+                # Add to overall progress
+                overall_progress += weight * phase_completion[phase]
+                
+                # All previous phases are complete
+                break
+            else:
+                # Previous phases are complete
+                phase_completion[phase] = 1.0
+                overall_progress += weight
+        
+        status["progress_percentage"] = int(overall_progress * 100)
+        
+        # Determine next steps
+        if current_phase == "RESEARCH":
+            # Check which research agents are not done
+            for agent in phase_agents["RESEARCH"]:
+                if state.get(f"{agent}_status") != "DONE":
+                    status["next_steps"].append(f"Complete {agent} execution")
+            
+            if not status["next_steps"]:
+                status["next_steps"].append("Transition to ANALYSIS phase")
+        
+        elif current_phase == "ANALYSIS":
+            if state.get("analyst_agent_status") != "DONE":
+                status["next_steps"].append("Complete analyst_agent execution")
+            else:
+                status["next_steps"].append("Transition to REPORT_GENERATION phase")
+        
+        elif current_phase == "REPORT_GENERATION":
+            if state.get("writer_agent_status") != "DONE":
+                status["next_steps"].append("Complete writer_agent execution")
+            else:
+                status["next_steps"].append("Transition to REPORT_REVIEW phase")
+        
+        elif current_phase == "REPORT_REVIEW":
+            status["next_steps"].append("Review final report")
+        
+        elif current_phase == "COMPLETE":
             status["next_steps"].append("Workflow complete")
+            status["overall_status"] = "DONE"
         
         return status
     
@@ -478,7 +524,7 @@ class MetaAgent(BaseAgent):
             self.logger.error(f"Failed to save workflow status: {str(e)}")
     
     async def initialize_agent_tasks(self, state: Dict[str, Any]) -> None:
-        """Initialize tasks for all agents with proper dependencies and priorities"""
+        """Initialize tasks for all individual agents with proper dependencies and priorities"""
         async with self.state_lock:
             company = state.get("company", "Unknown")
             self.logger.info(f"Initializing agent tasks for {company}")
@@ -489,18 +535,17 @@ class MetaAgent(BaseAgent):
             self.pending_agents = set()
             self.failed_agents = set()
             
+            # Add all individual agents
             for agent_name, dependencies in self.agent_dependencies.items():
                 priority = self.agent_priorities.get(agent_name, 0)
                 self.logger.info(f"Initializing task for agent {agent_name} with priority {priority}")
-                # Check configuration for parallel execution
-                is_parallel = self.parallel_execution
                 
                 # Create agent task
                 task = AgentTask(
                     agent_name=agent_name,
                     priority=priority,
                     dependencies=dependencies,
-                    is_parallel=is_parallel,
+                    is_parallel=self.parallel_execution,
                     timeout_seconds=self.config.get(agent_name, {}).get("timeout", 300)
                 )
                 
@@ -525,7 +570,7 @@ class MetaAgent(BaseAgent):
             prev_status = self.agent_tasks[agent_name].status
             
             # Special handling for RAG agent errors that are non-critical
-            if agent_name == "rag_agent" and status == "ERROR" and await self.is_recoverable_rag_error(error):
+            if agent_name == "rag_agent" and status == "ERROR" and self.is_recoverable_rag_error(error):
                 self.logger.info(f"Converting non-critical RAG error to success: {error}")
                 status = "DONE"  # Convert to success
                 error = None     # Clear the error
@@ -563,6 +608,24 @@ class MetaAgent(BaseAgent):
                 self.error_count += 1
             
             self.logger.info(f"Updated agent {agent_name} status: {prev_status} -> {status}")
+    
+    def is_recoverable_rag_error(self, error_message: str) -> bool:
+        """Check if RAG error is recoverable (non-critical)"""
+        if not error_message:
+            return False
+
+        recoverable_messages = [
+        "No documents loaded",
+        "No documents to categorize",
+        "No vector store",
+        "Vector store not initialized"
+        ]
+
+        for message in recoverable_messages:
+            if message in error_message:
+                return True
+
+        return False
     
     async def are_dependencies_satisfied(self, agent_name: str) -> bool:
         """Check if all dependencies for an agent are satisfied"""
@@ -623,8 +686,18 @@ class MetaAgent(BaseAgent):
     
     async def is_workflow_complete(self) -> bool:
         """Check if the workflow is complete (all agents done or failed)"""
-        # Workflow is complete when all agents are either completed or failed
-        return len(self.pending_agents) == 0 and len(self.running_agents) == 0
+        # First check if any agent is still pending or running
+        if self.pending_agents or self.running_agents:
+            return False
+        
+        # Next check if all required agents completed successfully
+        required_agents = ["research_agent", "analyst_agent", "writer_agent"]
+        for agent_name in required_agents:
+            if agent_name not in self.completed_agents and agent_name not in self.failed_agents:
+                return False
+        
+        # If we get here, workflow is complete
+        return True
     
     async def is_workflow_stalled(self) -> bool:
         """Check if the workflow is stalled and can't proceed"""
@@ -664,7 +737,7 @@ class MetaAgent(BaseAgent):
         
         if "rag_agent" in self.failed_agents:
             error = self.agent_tasks["rag_agent"].error
-            if await self.is_recoverable_rag_error(error):
+            if self.is_recoverable_rag_error(error):
                 self.logger.info(f"Converting non-critical rag error to success: {error}")
 
                 self.failed_agents.remove("rag_agent")
@@ -758,20 +831,78 @@ class MetaAgent(BaseAgent):
         return False, "", state
         
     async def determine_next_agent(self, state: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-        """Determine the next agent to run"""
-        # Get next agents to run
-        next_agents = await self.get_next_agents()
+        """Determine the next agent to run based on current phase and dependencies"""
+        # Get current phase
+        current_phase = state.get("current_phase", "RESEARCH")
         
-        if not next_agents:
-            self.logger.info(f"Waiting for {len(self.running_agents)} running agents to complete")
-            return "WAIT", state
+        # Check if explicit goto is set
+        goto = state.get("goto")
+        if goto and goto != "meta_agent":
+            self.logger.info(f"Explicit goto set to {goto}")
+            
+            # Clear goto to prevent loops
+            state["goto"] = None
+            
+            # Update agent status if needed
+            if goto in self.agent_tasks:
+                await self.update_agent_status(goto, "RUNNING")
+            
+            return goto, state
         
-        # Update status of next agent to RUNNING
-        next_agent = next_agents[0]
-        await self.update_agent_status(next_agent, "RUNNING")
-        
-        self.logger.info(f"Next agent to run: {next_agent}")
-        return next_agent, state
+        # Phase-based routing
+        if current_phase == "RESEARCH":
+            # Check which research agents need to run
+            # Sort research agents by priority (higher priority first)
+            research_agents = ["research_agent", "corporate_agent", "youtube_agent", "rag_agent"]
+            research_agents_with_priority = [(agent, self.agent_priorities.get(agent, 0)) for agent in research_agents]
+            sorted_research_agents = [agent for agent, _ in sorted(research_agents_with_priority, key=lambda x: x[1], reverse=True)]
+            
+            self.logger.info(f"Prioritized research agents order: {sorted_research_agents}")
+            
+            for agent in sorted_research_agents:
+                if state.get(f"{agent}_status") != "DONE":
+                    await self.update_agent_status(agent, "RUNNING")
+                    self.logger.info(f"Selected {agent} for execution in RESEARCH phase (priority: {self.agent_priorities.get(agent, 0)})")
+                    return agent, state
+            
+            # If all research agents are done, transition to ANALYSIS phase
+            self.logger.info("All research agents complete, transitioning to ANALYSIS phase")
+            state["current_phase"] = "ANALYSIS"
+            await self.update_agent_status("analyst_agent", "RUNNING")
+            return "analyst_agent", state
+            
+        elif current_phase == "ANALYSIS":
+            # Check if analysis is done
+            if state.get("analyst_agent_status") != "DONE":
+                await self.update_agent_status("analyst_agent", "RUNNING")
+                self.logger.info("Selected analyst_agent for execution in ANALYSIS phase")
+                return "analyst_agent", state
+                
+            # If analysis is done, transition to REPORT_GENERATION phase
+            self.logger.info("Analysis complete, transitioning to REPORT_GENERATION phase")
+            state["current_phase"] = "REPORT_GENERATION"
+            await self.update_agent_status("writer_agent", "RUNNING")
+            return "writer_agent", state
+            
+        elif current_phase == "REPORT_GENERATION":
+            # Check if report generation is done
+            if state.get("writer_agent_status") != "DONE":
+                await self.update_agent_status("writer_agent", "RUNNING")
+                self.logger.info("Selected writer_agent for execution in REPORT_GENERATION phase")
+                return "writer_agent", state
+                
+            # If report generation is done, transition to COMPLETE phase
+            self.logger.info("Report generation complete, transitioning to COMPLETE phase")
+            state["current_phase"] = "COMPLETE"
+            return "END", state
+            
+        elif current_phase == "COMPLETE":
+            self.logger.info("Workflow is complete")
+            return "END", state
+            
+        # If we get here, workflow is in an unknown state
+        self.logger.warning(f"Unknown phase: {current_phase}, waiting for next instruction")
+        return "WAIT", state
     
     async def manage_workflow(self, state: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         """Manage workflow execution with improved error handling"""
@@ -809,7 +940,7 @@ class MetaAgent(BaseAgent):
             if status_key in state and state[status_key] is not None:
                 # Update our internal tracking
                 error = state.get("error")
-                if agent_name == "rag_agent" and state[status_key] == "ERROR" and await self.is_recoverable_rag_error(error):
+                if agent_name == "rag_agent" and state[status_key] == "ERROR" and self.is_recoverable_rag_error(error):
                     self.logger.info(f"Converting non-critical RAG Agent error to success: {error}")
                     updated_state[status_key] = "DONE"
 
@@ -830,28 +961,38 @@ class MetaAgent(BaseAgent):
                     state.get("error") if updated_state[status_key] == "ERROR" else None
                 )
         
+        # Check if all research agents are complete to transition phases
+        research_agents = ["research_agent", "corporate_agent", "youtube_agent", "rag_agent"]
+        all_research_complete = True
+        
+        for agent in research_agents:
+            # RAG agent is optional if disabled
+            if agent == "rag_agent" and not updated_state.get("enable_rag", True):
+                continue
+                
+            if updated_state.get(f"{agent}_status") != "DONE":
+                all_research_complete = False
+                break
+                
+        if all_research_complete and updated_state.get("current_phase") == "RESEARCH":
+            self.logger.info("All research agents complete, transitioning to ANALYSIS phase")
+            updated_state["current_phase"] = "ANALYSIS"
+                
+        # Check if analysis is complete to transition to report generation
+        if updated_state.get("analyst_agent_status") == "DONE" and updated_state.get("current_phase") == "ANALYSIS":
+            self.logger.info("Analysis complete, transitioning to REPORT_GENERATION phase")
+            updated_state["current_phase"] = "REPORT_GENERATION"
+                
+        # Check if report generation is complete
+        if updated_state.get("writer_agent_status") == "DONE" and updated_state.get("current_phase") == "REPORT_GENERATION":
+            self.logger.info("Report generation complete, transitioning to COMPLETE phase")
+            updated_state["current_phase"] = "COMPLETE"
+        
         # Take a snapshot of the current state for recovery
         await self.save_state_snapshot(updated_state)
         
         return updated_state
-
-    async def is_recoverable_rag_error(self, error_message: str) -> bool:
-        if not error_message:
-            return False
-
-        recoverable_messages = [
-        "No documents loaded",
-        "No documents to categorize",
-        "No vector store",
-        "Vector store not initialized"
-        ]
-
-        for message in recoverable_messages:
-            if message in error_message:
-                return True
-
-        return False
-
+    
     async def _execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Implements the abstract _execute method required by BaseAgent.
@@ -908,42 +1049,48 @@ class MetaAgent(BaseAgent):
                 status = await self.generate_workflow_status(current_state)
                 await self.save_workflow_status(current_state, status)
                 
-                # Start with research agent
-                await self.update_agent_status("research_agent", "RUNNING")
-                return {**current_state, "goto": "research_agent"}
+                # Get the highest priority agent (YouTube) instead of hardcoding research_agent
+                research_agents = ["research_agent", "corporate_agent", "youtube_agent", "rag_agent"]
+                research_agents_with_priority = [(agent, self.agent_priorities.get(agent, 0)) for agent in research_agents]
+                sorted_research_agents = [agent for agent, _ in sorted(research_agents_with_priority, key=lambda x: x[1], reverse=True)]
+                
+                self.logger.info(f"First iteration: Prioritized agents: {sorted_research_agents}")
+                first_agent = sorted_research_agents[0]
+                await self.update_agent_status(first_agent, "RUNNING")
+                self.logger.info(f"Starting workflow with highest priority agent: {first_agent}")
+                return {**current_state, "goto": first_agent}
             
             # If we're returning from another agent, handle the transition
             if "goto" in current_state and current_state["goto"] == "meta_agent":
-                # Find which agent just completed
-                completed_agent = None
-                for agent_name in self.running_agents:
-                    status_key = f"{agent_name}_status"
-                    if status_key in current_state and current_state[status_key] in ["DONE", "ERROR"]:
-                        completed_agent = agent_name
-                        break
+                # Manage workflow to determine next steps
+                updated_state, next_step = await self.manage_workflow(current_state)
                 
-                if completed_agent:
-                    # Update agent status based on result
-                    status = current_state.get(f"{completed_agent}_status", "UNKNOWN")
-                    error = current_state.get("error")
+                if next_step == "END":
+                    self.logger.info("Workflow complete, finalizing")
+                    return {**updated_state, "goto": "END"}
                     
-                    await self.update_agent_status(completed_agent, status, error)
-                    self.logger.info(f"Agent {completed_agent} completed with status: {status}")
-            
-            # Manage workflow to determine next steps
-            updated_state, next_step = await self.manage_workflow(current_state)
-            
-            if next_step == "END":
-                self.logger.info("Workflow complete, finalizing")
-                return {**updated_state, "goto": "END"}
-                
-            elif next_step == "WAIT":
-                self.logger.info("Waiting for running agents to complete")
-                return {**updated_state, "goto": "WAIT"}
-                
+                elif next_step == "WAIT":
+                    self.logger.info("Waiting for running agents to complete")
+                    return {**updated_state, "goto": "WAIT"}
+                    
+                else:
+                    self.logger.info(f"Directing workflow to {next_step}")
+                    return {**updated_state, "goto": next_step}
             else:
-                self.logger.info(f"Directing workflow to {next_step}")
-                return {**updated_state, "goto": next_step}
+                # Default to continuing with workflow management
+                updated_state, next_step = await self.manage_workflow(current_state)
+                
+                if next_step == "END":
+                    self.logger.info("Workflow complete, finalizing")
+                    return {**updated_state, "goto": "END"}
+                    
+                elif next_step == "WAIT":
+                    self.logger.info("Waiting for running agents to complete")
+                    return {**updated_state, "goto": "WAIT"}
+                    
+                else:
+                    self.logger.info(f"Directing workflow to {next_step}")
+                    return {**updated_state, "goto": next_step}
                 
         except Exception as e:
             tb = traceback.format_exc()
@@ -977,4 +1124,3 @@ class MetaAgent(BaseAgent):
             
             # If we can't recover, return error state
             return {**current_state, "goto": "END", "error": error_msg}
-

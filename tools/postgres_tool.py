@@ -937,6 +937,18 @@ class PostgresTool(BaseTool):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def run(self, command: str, **kwargs) -> ToolResult[Any]:
         try:
+            # Verify event loop state to catch issues early
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    self.logger.error("Event loop is closed, creating new loop")
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+            except RuntimeError:
+                self.logger.warning("No event loop in current thread, creating new one")
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                
             await self._ensure_initialized()
             
             result = None
@@ -948,11 +960,18 @@ class PostgresTool(BaseTool):
                 if not query:
                     return ToolResult(success=False, error="Query is required for execute_query command")
                 
-                success, data, error = await self.execute_query(query, params)
-                if success:
-                    result = data
-                else:
-                    return ToolResult(success=False, error=error)
+                try:
+                    success, data, error = await self.execute_query(query, params)
+                    if success:
+                        result = data
+                    else:
+                        return ToolResult(success=False, error=error)
+                except asyncio.CancelledError:
+                    self.logger.error("Query execution cancelled - asyncio.CancelledError")
+                    return ToolResult(success=False, error="Operation cancelled")
+                except Exception as e:
+                    self.logger.error(f"Database query error: {str(e)}")
+                    return ToolResult(success=False, error=f"Database error: {str(e)}")
                     
             elif command == "fetch_one":
                 query = kwargs.get("query")

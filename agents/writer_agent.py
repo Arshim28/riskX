@@ -1149,9 +1149,9 @@ Based on our analysis of {company}, we recommend:
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         self._log_start(state)
         
-        if not state.get("analyst_agent_status") == "DONE" and not state.get("analyst_status") == "DONE":
+        if not state.get("analyst_agent_status") == "DONE":
             self.logger.info("Analyst not done yet. Waiting...")
-            return {**state, "goto": "meta_agent", "writer_status": "WAITING"}
+            return {**state, "goto": "meta_agent", "writer_agent_status": "WAITING"}
         
         self.logger.info("Analyst work complete. Starting report generation.")
         
@@ -1236,7 +1236,7 @@ Based on our analysis of {company}, we recommend:
             state["report_feedback"] = feedback
             state["executive_briefing"] = executive_briefing
             state["report_filename"] = report_filename
-            state["writer_status"] = "DONE"
+            state["writer_agent_status"] = "DONE"
             state["top_events"] = top_events
             state["other_events"] = other_events
             
@@ -1270,7 +1270,7 @@ Based on our analysis of {company}, we recommend:
                 state["final_report"] = full_report
                 state["report_sections"] = self.report_sections
                 state["report_filename"] = report_filename
-                state["writer_status"] = "DONE"
+                state["writer_agent_status"] = "DONE"
                 
                 self.logger.info("Generated report from recovered sections")
             else:
@@ -1278,19 +1278,19 @@ Based on our analysis of {company}, we recommend:
                 research_count = len(research_results) if isinstance(research_results, dict) else 0
                 
                 fallback_report = f"""
-# Forensic News Analysis Report: {company}
+    # Forensic News Analysis Report: {company}
 
-Report Date: {datetime.now().strftime("%Y-%m-%d")}
+    Report Date: {datetime.now().strftime("%Y-%m-%d")}
 
-## Executive Summary
+    ## Executive Summary
 
-This report presents the findings of a forensic news analysis conducted on {company}. Due to technical issues during report generation, this is a simplified version of the analysis.
+    This report presents the findings of a forensic news analysis conducted on {company}. Due to technical issues during report generation, this is a simplified version of the analysis.
 
-## Key Findings
+    ## Key Findings
 
-The analysis identified {research_count} significant events related to {company}.
+    The analysis identified {research_count} significant events related to {company}.
 
-"""
+    """
                 
                 if isinstance(research_results, dict) and research_results:
                     fallback_report += "## Events Identified\n\n"
@@ -1299,17 +1299,17 @@ The analysis identified {research_count} significant events related to {company}
                         fallback_report += f"- {event_name} ({article_count} articles)\n"
                 
                 fallback_report += """
-## Technical Issue
+    ## Technical Issue
 
-The full report could not be generated due to a technical error. Please refer to the logs for more information.
-"""
+    The full report could not be generated due to a technical error. Please refer to the logs for more information.
+    """
                 
                 report_filename = await self.save_debug_report(company, fallback_report)
                 
                 state["final_report"] = fallback_report
                 state["error"] = str(e)
                 state["report_filename"] = report_filename
-                state["writer_status"] = "ERROR"
+                state["writer_agent_status"] = "ERROR"
                 self.logger.info("Generated fallback report due to errors.")
         
         self._log_completion({**state, "goto": "meta_agent"})

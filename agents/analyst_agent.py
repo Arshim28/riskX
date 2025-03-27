@@ -665,6 +665,8 @@ class AnalystAgent(BaseAgent):
                     self.knowledge_base["red_flags"].append(flag)
                     self.result_tracker["red_flags_found"].add(flag)
     
+# Replace the run method in analyst_agent.py with this improved version
+
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Main entry point for the agent with improved state handling."""
         self._log_start(state)
@@ -675,11 +677,11 @@ class AnalystAgent(BaseAgent):
         
         if not company:
             self.logger.error("Company name missing!")
-            return {**state, "goto": "meta_agent", "analyst_status": "ERROR", "error": "Company name missing"}
+            return {**state, "goto": "meta_agent", "analyst_agent_status": "ERROR", "error": "Company name missing"}
         
         if not research_results:
             self.logger.error("No research results to analyze!")
-            return {**state, "goto": "meta_agent", "analyst_status": "ERROR", "error": "No research results"}
+            return {**state, "goto": "meta_agent", "analyst_agent_status": "ERROR", "error": "No research results"}
         
         self.logger.info(f"Analyzing {len(research_results)} events for company: {company}")
         
@@ -765,7 +767,7 @@ class AnalystAgent(BaseAgent):
             **state,
             "analysis_results": analysis_results,
             "final_report": final_report,
-            "analyst_status": "DONE",
+            "analyst_agent_status": "DONE",
             "analysis_stats": self.processing_stats,
             "goto": "meta_agent"
         }
