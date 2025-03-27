@@ -1,0 +1,15 @@
+Please analyze this transcript for the video titled "{{ video_title }}" about {{ company }}.
+
+Description: {{ video_description }}
+
+Transcript:
+{{ transcript }}
+
+Analyze the transcript for any information that would be relevant in a financial forensic investigation. Focus specifically on any potential red flags, financial irregularities, accounting issues, or regulatory/legal concerns.
+
+Return your analysis in JSON format with these fields:
+- forensic_relevance: "high", "medium", or "low" based on how relevant this content is for investigation
+- red_flags: list of specific issues or concerns found (empty list if none)
+- summary: concise overview of key points relevant to financial forensic analysis
+
+The JSON should be properly formatted without any extra text before or after.

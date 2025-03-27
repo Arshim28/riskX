@@ -82,11 +82,38 @@ class YoutubeTool(BaseTool):
 
             self.logger.info(f"Successfully fetched transcript for video: {video_id}")
 
-            if transcript and isinstance(transcript, list):
-                if transcript and isinstance(transcript[0], dict):
-                    return " ".join(snippet.get('text', '') for snippet in transcript)
+            # Process transcript depending on its format
+            # Log the transcript format for debugging
+            self.logger.info(f"Raw transcript type: {type(transcript)}")
+            if transcript:
+                if isinstance(transcript, list):
+                    self.logger.info(f"Transcript is a list of length {len(transcript)}")
+                    if transcript and isinstance(transcript[0], dict):
+                        self.logger.info("Transcript is a list of dictionaries")
+                        full_text = " ".join(snippet.get('text', '') for snippet in transcript)
+                        self.logger.debug(f"Processed transcript preview: {full_text[:200]}...")
+                        return full_text
+                    else:
+                        self.logger.info("Transcript is a list of non-dictionary objects")
+                        full_text = " ".join(getattr(snippet, 'text', '') for snippet in transcript)
+                        self.logger.debug(f"Processed transcript preview: {full_text[:200]}...")
+                        return full_text
+                # If it's already a string, return it directly
+                elif isinstance(transcript, str):
+                    self.logger.info("Transcript is already a string")
+                    self.logger.debug(f"Transcript preview: {transcript[:200]}...")
+                    return transcript
                 else:
-                    return " ".join(getattr(snippet, 'text', '') for snippet in transcript)
+                    self.logger.warning(f"Unexpected transcript format: {type(transcript)}")
+                    # Try to convert to string as a fallback
+                    try:
+                        transcript_str = str(transcript)
+                        self.logger.info(f"Converted transcript to string, length: {len(transcript_str)}")
+                        self.logger.debug(f"Converted transcript preview: {transcript_str[:200]}...")
+                        return transcript_str
+                    except Exception as e:
+                        self.logger.error(f"Failed to convert transcript to string: {e}")
+                        return None
 
             return None
         except Exception as e:
@@ -292,9 +319,15 @@ class YoutubeTool(BaseTool):
     async def _execute(self, action: str, **kwargs) -> ToolResult:
         return await self.run(action, **kwargs)
 
-    @retry(stop=stop_after_attempt(RETRY_LIMIT), wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT))
+    @retry(
+        stop=stop_after_attempt(RETRY_LIMIT), 
+        wait=wait_exponential(multiplier=MULTIPLIER, min=MIN_WAIT, max=MAX_WAIT),
+        reraise=True
+    )
     async def run(self, action: str, **kwargs) -> ToolResult[Dict[str, Any]]:
         try:
+            self.logger.info(f"Running action: {action} with parameters: {kwargs}")
+            
             if action == "search_videos":
                 query = kwargs.get("query")
                 if not query:
@@ -303,7 +336,9 @@ class YoutubeTool(BaseTool):
                 max_results = kwargs.get("max_results", 50)
                 order = kwargs.get("order", "relevance")
                 
+                self.logger.info(f"Searching for videos with query: {query}, max_results: {max_results}")
                 videos = await self.search_videos(query, max_results, order)
+                self.logger.info(f"Found {len(videos)} videos for query: {query}")
                 return ToolResult(success=True, data={
                     "videos": [video.model_dump() for video in videos]
                 })
@@ -312,18 +347,36 @@ class YoutubeTool(BaseTool):
                 video_id = kwargs.get("video_id")
                 if not video_id:
                     raise ValueError("Video ID parameter is required for get_transcript action")
+                
+                self.logger.info(f"Getting transcript for video: {video_id}")
+                try:
+                    transcript = await self.get_transcript(video_id)
+                    # Add debug logging for transcript format
+                    self.logger.info(f"Transcript type: {type(transcript)}, length: {len(transcript) if transcript else 0}")
+                    if transcript:
+                        self.logger.debug(f"Transcript preview: {transcript[:200]}...")
+                    else:
+                        self.logger.warning(f"No transcript available for video: {video_id}")
                     
-                transcript = await self.get_transcript(video_id)
-                return ToolResult(success=True, data={
-                    "transcript": transcript
-                })
+                    # Return plain text transcript directly instead of wrapping in a data object
+                    return ToolResult(success=True, data=transcript)
+                except Exception as e:
+                    import traceback
+                    self.logger.error(f"Error getting transcript for {video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    return ToolResult(success=False, error=f"Error getting transcript: {str(e)}")
                 
             elif action == "get_video_details":
                 video_id = kwargs.get("video_id")
                 if not video_id:
                     raise ValueError("Video ID parameter is required for get_video_details action")
                     
+                self.logger.info(f"Getting details for video: {video_id}")
                 details = await self.get_video_details(video_id)
+                if details:
+                    self.logger.info(f"Successfully got details for video: {video_id}")
+                else:
+                    self.logger.warning(f"Failed to get details for video: {video_id}")
+                    
                 return ToolResult(success=True, data={
                     "details": details.model_dump() if details else None
                 })
@@ -333,7 +386,13 @@ class YoutubeTool(BaseTool):
                 if not channel_name:
                     raise ValueError("Channel name parameter is required for get_channel_id action")
                     
+                self.logger.info(f"Getting channel ID for: {channel_name}")
                 channel_id = await self.get_channel_id_by_name(channel_name)
+                if channel_id:
+                    self.logger.info(f"Found channel ID for {channel_name}: {channel_id}")
+                else:
+                    self.logger.warning(f"No channel ID found for: {channel_name}")
+                    
                 return ToolResult(success=True, data={
                     "channel_id": channel_id
                 })
@@ -345,7 +404,10 @@ class YoutubeTool(BaseTool):
                     
                 max_results = kwargs.get("max_results", 50)
                 
+                self.logger.info(f"Getting playlists for channel: {channel_id}, max_results: {max_results}")
                 playlists = await self.get_playlists_from_channel(channel_id, max_results)
+                self.logger.info(f"Found {len(playlists)} playlists for channel: {channel_id}")
+                
                 return ToolResult(success=True, data={
                     "playlists": [playlist.model_dump() for playlist in playlists]
                 })
@@ -357,13 +419,20 @@ class YoutubeTool(BaseTool):
                     
                 max_results = kwargs.get("max_results", 50)
                 
+                self.logger.info(f"Getting videos from playlist: {playlist_id}, max_results: {max_results}")
                 videos = await self.get_videos_from_playlist(playlist_id, max_results)
+                self.logger.info(f"Found {len(videos)} videos in playlist: {playlist_id}")
+                
                 return ToolResult(success=True, data={
                     "videos": [video.model_dump() for video in videos]
                 })
                 
             else:
-                raise ValueError(f"Unknown action: {action}")
+                error_msg = f"Unknown action: {action}"
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
                 
         except Exception as e:
+            import traceback
+            self.logger.error(f"Error in YouTube tool run method: {str(e)}\nTraceback: {traceback.format_exc()}")
             return await self._handle_error(e)

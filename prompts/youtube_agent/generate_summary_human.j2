@@ -1,0 +1,20 @@
+Please create a summary of YouTube content about {{ company }} based on the individual video analyses below.
+
+We analyzed {{ analyzed_count }} videos out of {{ video_count }} total videos found.
+
+Here are the individual video summaries:
+{{ video_summaries }}
+
+Synthesize these findings into a cohesive overview that highlights:
+1. The overall assessment of YouTube content about {{ company }}
+2. Key insights extracted from across all videos
+3. Red flags or concerning patterns that emerged
+4. The most notable videos that warrant deeper investigation
+
+Return your summary as a properly formatted JSON object with these fields:
+- overall_assessment: A 1-2 sentence overall assessment
+- key_insights: An array of important findings (3-5 items)
+- red_flags: An array of potential issues or concerns (can be empty if none found)
+- notable_videos: An array of objects containing video_id, title, and relevance for the most important videos
+
+The JSON should be properly formatted without any extra text before or after.

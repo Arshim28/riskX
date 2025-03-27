@@ -939,15 +939,18 @@ class PostgresTool(BaseTool):
         try:
             # Verify event loop state to catch issues early
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    self.logger.error("Event loop is closed, creating new loop")
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
+                loop = asyncio.get_running_loop()
             except RuntimeError:
+                # No event loop in current thread, creating new one
                 self.logger.warning("No event loop in current thread, creating new one")
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Check if the loop is closed
+            if loop.is_closed():
+                self.logger.error("Event loop is closed, creating new loop")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 
             await self._ensure_initialized()
             

@@ -1,5 +1,6 @@
 from typing import Dict, List, Any, Optional, Tuple, Union
 import json
+import os
 import asyncio
 import traceback
 import logging
@@ -139,6 +140,9 @@ class YouTubeAgent(BaseAgent):
             error_msg = f"Unexpected error parsing {context}: {str(e)}"
             self.logger.error(error_msg)
             
+            # Log the error and the raw text for debugging
+            self.logger.debug(f"Raw response that failed to parse: {response[:300]}...")
+            
             # Return default structure instead of raising error
             return {
                 "forensic_relevance": "unknown",
@@ -226,6 +230,9 @@ class YouTubeAgent(BaseAgent):
             try:
                 self.logger.info(f"Getting transcript for video: {video_id}")
                 
+                # Add traceback context for better debugging
+                self.logger.debug(f"Transcript call stack for {video_id}:\n{traceback.format_stack()}")
+                
                 transcript_result = await self.youtube_tool.run(
                     action="get_transcript",
                     video_id=video_id
@@ -244,10 +251,13 @@ class YouTubeAgent(BaseAgent):
                         raise YouTubeRateLimitError(error_msg)
                     elif "connection" in str(transcript_result.error).lower() or "network" in str(transcript_result.error).lower():
                         raise YouTubeConnectionError(error_msg)
+                    elif "quota" in str(transcript_result.error).lower():
+                        raise YouTubeRateLimitError(f"YouTube API quota exceeded: {transcript_result.error}")
                     
                     return None
                 
-                transcript = transcript_result.data.get("transcript")
+                # Handle plain text transcript from the API (no JSON wrapper)
+                transcript = transcript_result.data
                 
                 if transcript is None:
                     self.logger.warning(f"No transcript data received for video {video_id}")
@@ -263,17 +273,25 @@ class YouTubeAgent(BaseAgent):
                 return sanitized_transcript
                 
             except aiohttp.ClientError as e:
+                self.logger.error(f"Connection error getting transcript: {str(e)}\nTraceback: {traceback.format_exc()}")
                 raise YouTubeConnectionError(f"Connection error getting transcript: {str(e)}")
             except YouTubeError:
+                self.logger.error(f"YouTube error getting transcript: {traceback.format_exc()}")
                 raise
             except Exception as e:
-                self.logger.error(f"Unexpected error getting transcript: {str(e)}")
+                self.logger.error(f"Unexpected error getting transcript: {str(e)}\nTraceback: {traceback.format_exc()}")
                 return None
         
         try:
-            return await _get_transcript_with_retry()
+            self.logger.info(f"Starting transcript retrieval for video {video_id} with retries")
+            result = await _get_transcript_with_retry()
+            if result:
+                self.logger.info(f"Successfully retrieved transcript for {video_id} after retries")
+            else:
+                self.logger.warning(f"Failed to get transcript for {video_id} after retries")
+            return result
         except RetryError as e:
-            self.logger.warning(f"Failed to get transcript after {self.retry_attempts} attempts: {str(e.last_attempt.exception())}")
+            self.logger.error(f"Failed to get transcript after {self.retry_attempts} attempts for video {video_id}: {str(e.last_attempt.exception())}\nTraceback: {traceback.format_exc()}")
             return None
     
     async def analyze_transcript(self, video_data: VideoData, company: str) -> Dict[str, Any]:
@@ -283,6 +301,9 @@ class YouTubeAgent(BaseAgent):
         async def _analyze_with_retry():
             try:
                 self.logger.info(f"Analyzing transcript for video: {video_data.video_id}")
+                
+                # Add debugging context
+                self.logger.debug(f"Analysis call stack for {video_data.video_id}:\n{traceback.format_stack()}")
                 
                 if not video_data.transcript:
                     self.logger.warning(f"No transcript available for video {video_data.video_id}")
@@ -294,7 +315,12 @@ class YouTubeAgent(BaseAgent):
                         "title": video_data.title
                     }
                 
-                llm_provider = await get_llm_provider()
+                try:
+                    llm_provider = await get_llm_provider()
+                    self.logger.info(f"LLM provider obtained for analysis of video {video_data.video_id}")
+                except Exception as e:
+                    self.logger.error(f"Failed to get LLM provider for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    raise YouTubeDataError(f"LLM provider error: {str(e)}")
                 
                 description = video_data.description
                 if len(description) > 1000:
@@ -314,6 +340,7 @@ class YouTubeAgent(BaseAgent):
                 }
                 
                 try:
+                    self.logger.info(f"Getting prompts for video {video_data.video_id}")
                     prompt_result = self.prompt_manager.get_prompt(
                         agent_name=self.name,
                         operation="analyze_transcript",
@@ -322,25 +349,60 @@ class YouTubeAgent(BaseAgent):
                     
                     if not prompt_result or not isinstance(prompt_result, tuple) or len(prompt_result) != 2:
                         self.logger.error(f"Invalid prompt format for video {video_data.video_id}. Using default prompts.")
-                        system_prompt = f"Analyze this transcript for {company}. Identify any forensically relevant information."
-                        human_prompt = f"Please analyze this transcript for the video titled '{video_data.title}'. The transcript is: {transcript}"
+                        system_prompt = f"""Analyze this transcript for {company}. Identify any forensically relevant information.
+Focus on financial irregularities, disclosures, governance issues, and potential red flags.
+You will receive an unstructured video transcript to analyze."""
+                        human_prompt = f"""Please analyze this transcript for the video titled '{video_data.title}'. 
+Extract any important information related to financial forensics, corporate governance, or potential irregularities.
+
+The transcript is:
+{transcript}
+
+Provide a thorough analysis focusing on:
+1. Whether this content is forensically relevant (high/medium/low)
+2. Any potential red flags or concerning statements
+3. A summary of key points relevant to a financial investigation"""
                     else:
                         system_prompt, human_prompt = prompt_result
+                        self.logger.info(f"Successfully retrieved prompts for video {video_data.video_id}")
                 except Exception as e:
-                    self.logger.error(f"Error getting prompts: {str(e)}. Using default prompts.")
-                    system_prompt = f"Analyze this transcript for {company}. Identify any forensically relevant information."
-                    human_prompt = f"Please analyze this transcript for the video titled '{video_data.title}'. The transcript is: {transcript}"
+                    self.logger.error(f"Error getting prompts for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}. Using default prompts.")
+                    system_prompt = f"""Analyze this transcript for {company}. Identify any forensically relevant information.
+Focus on financial irregularities, disclosures, governance issues, and potential red flags.
+You will receive an unstructured video transcript to analyze."""
+                    human_prompt = f"""Please analyze this transcript for the video titled '{video_data.title}'. 
+Extract any important information related to financial forensics, corporate governance, or potential irregularities.
+
+The transcript is:
+{transcript}
+
+Provide a thorough analysis focusing on:
+1. Whether this content is forensically relevant (high/medium/low)
+2. Any potential red flags or concerning statements
+3. A summary of key points relevant to a financial investigation"""
                 
                 input_message = [
                     ("system", system_prompt),
                     ("human", human_prompt)
                 ]
                 
-                # Fixed: Changed model_name to model
-                response = await llm_provider.generate_text(
-                    input_message,
-                    model=self.config.get("models", {}).get("analysis")
-                )
+                self.logger.info(f"Calling LLM for analysis of video {video_data.video_id}")
+                try:
+                    # Fixed: Changed model_name to model
+                    model = self.config.get("models", {}).get("analysis")
+                    self.logger.info(f"Using model {model} for analysis of video {video_data.video_id}")
+                    
+                    response = await llm_provider.generate_text(
+                        input_message,
+                        model=model
+                    )
+                    
+                    # Log the raw response for debugging
+                    self.logger.info(f"Received LLM response for video {video_data.video_id}, length: {len(response)}")
+                    self.logger.debug(f"Raw analysis response preview for {video_data.video_id}: {response[:300]}...")
+                except Exception as e:
+                    self.logger.error(f"Error generating text for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    raise YouTubeDataError(f"LLM generation error: {str(e)}")
                 
                 if not response:
                     self.logger.warning(f"Empty analysis response received for video {video_data.video_id}")
@@ -353,18 +415,54 @@ class YouTubeAgent(BaseAgent):
                     }
                 
                 try:
-                    analysis_result = self._parse_json_response(response, f"transcript analysis for {video_data.video_id}")
-                except YouTubeDataError as e:
-                    self.logger.warning(f"Error parsing analysis response: {str(e)}")
+                    # First try to parse as JSON for backward compatibility
+                    self.logger.info(f"Parsing analysis response for video {video_data.video_id}")
+                    try:
+                        analysis_result = self._parse_json_response(response, f"transcript analysis for {video_data.video_id}")
+                        self.logger.info(f"Successfully parsed JSON response for video {video_data.video_id}")
+                    except (YouTubeDataError, json.JSONDecodeError):
+                        # If JSON parsing fails, treat response as unstructured text and convert to our format
+                        self.logger.info(f"Response is not JSON, processing as unstructured text for {video_data.video_id}")
+                        self.logger.debug(f"Raw transcript response: {response[:200]}...")
+                        # Create a JSON-like structure from the unstructured text
+                        summary = response.strip()
+                        
+                        # Try to determine relevance from the text
+                        relevance = "medium"  # Default value
+                        if "high" in summary.lower() and "relevance" in summary.lower():
+                            relevance = "high"
+                        elif "low" in summary.lower() and "relevance" in summary.lower():
+                            relevance = "low"
+                        
+                        # Try to extract red flags if mentioned in the text
+                        red_flags = []
+                        if "red flag" in summary.lower() or "concern" in summary.lower():
+                            # Simple extraction attempt - not perfect but better than empty
+                            lines = summary.split('\n')
+                            for line in lines:
+                                if "red flag" in line.lower() or "concern" in line.lower() or "issue" in line.lower():
+                                    red_flags.append(line.strip())
+                        
+                        analysis_result = {
+                            "forensic_relevance": relevance,
+                            "red_flags": red_flags[:5],  # Limit to 5 items
+                            "summary": summary
+                        }
+                        
+                        self.logger.info(f"Created structured data from unstructured response: relevance={relevance}, red_flags={len(red_flags)}")
+                except Exception as e:
+                    self.logger.error(f"Error parsing analysis response for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    # Use the raw response as the summary rather than discarding it
                     return {
                         "forensic_relevance": "unknown",
                         "red_flags": [],
-                        "summary": f"Error analyzing transcript: {str(e)}",
+                        "summary": response if response else f"Error analyzing transcript: {str(e)}",
                         "video_id": video_data.video_id,
                         "title": video_data.title
                     }
                 
                 if not isinstance(analysis_result, dict):
+                    self.logger.warning(f"Analysis result is not a dictionary for video {video_data.video_id}, converting")
                     analysis_result = {}
                     
                 analysis_result["forensic_relevance"] = analysis_result.get("forensic_relevance", "unknown")
@@ -389,8 +487,11 @@ class YouTubeAgent(BaseAgent):
                 self.logger.info(f"Analyzed transcript for video {video_data.video_id} (relevance: {relevance})")
                 
                 return analysis_result
+            except YouTubeError as e:
+                self.logger.error(f"YouTube error analyzing transcript for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                raise
             except Exception as e:
-                self.logger.error(f"Unexpected error analyzing transcript: {str(e)}")
+                self.logger.error(f"Unexpected error analyzing transcript for video {video_data.video_id}: {str(e)}\nTraceback: {traceback.format_exc()}")
                 return {
                     "forensic_relevance": "unknown",
                     "red_flags": ["Analysis failed with error"],
@@ -400,10 +501,12 @@ class YouTubeAgent(BaseAgent):
                 }
         
         try:
-            return await _analyze_with_retry()
+            self.logger.info(f"Starting transcript analysis for video {video_data.video_id} with retries")
+            result = await _analyze_with_retry()
+            self.logger.info(f"Completed transcript analysis for video {video_data.video_id}")
+            return result
         except RetryError as e:
-            if e.last_attempt.exception():
-                self.logger.error(f"Failed to analyze transcript after {self.retry_attempts} attempts: {str(e.last_attempt.exception())}")
+            self.logger.error(f"Failed to analyze transcript after {self.retry_attempts} attempts for video {video_data.video_id}: {str(e.last_attempt.exception())}\nTraceback: {traceback.format_exc()}")
             
             return {
                 "forensic_relevance": "unknown",
@@ -525,10 +628,12 @@ class YouTubeAgent(BaseAgent):
         async def _generate_with_retry():
             try:
                 self.logger.info(f"Generating video summary for {len(videos_data)} videos about {company}")
+                self.logger.debug(f"Summary generation call stack:\n{traceback.format_stack()}")
                 
                 sorted_videos = sorted(videos_data, key=lambda x: x.relevance_score, reverse=True)
                 
                 top_videos = sorted_videos[:10]
+                self.logger.info(f"Selected top {len(top_videos)} videos for detailed summary")
                 
                 video_summaries = []
                 for video in top_videos:
@@ -542,7 +647,12 @@ class YouTubeAgent(BaseAgent):
                     }
                     video_summaries.append(summary)
                 
-                llm_provider = await get_llm_provider()
+                try:
+                    llm_provider = await get_llm_provider()
+                    self.logger.info(f"LLM provider obtained for video summary generation for {company}")
+                except Exception as e:
+                    self.logger.error(f"Failed to get LLM provider for summary generation: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    raise YouTubeDataError(f"LLM provider error in summary generation: {str(e)}")
                 
                 variables = {
                     "company": company,
@@ -551,41 +661,106 @@ class YouTubeAgent(BaseAgent):
                     "video_summaries": json.dumps(video_summaries)
                 }
                 
-                system_prompt, human_prompt = self.prompt_manager.get_prompt(
-                    agent_name=self.name,
-                    operation="generate_summary",
-                    variables=variables
-                )
+                try:
+                    self.logger.info(f"Getting prompts for summary generation for {company}")
+                    system_prompt, human_prompt = self.prompt_manager.get_prompt(
+                        agent_name=self.name,
+                        operation="generate_summary",
+                        variables=variables
+                    )
+                    self.logger.info(f"Successfully retrieved prompts for summary generation")
+                except Exception as e:
+                    error_details = f"Error getting prompts for summary generation: {str(e)}\nTraceback: {traceback.format_exc()}"
+                    self.logger.error(error_details)
+                    
+                    # Use default prompts as fallback
+                    self.logger.info("Using default prompts for summary generation")
+                    system_prompt = f"""You are a forensic financial analyst. Analyze these YouTube video summaries about {company} and identify key insights and red flags."""
+                    
+                    human_prompt = f"""I have analyzed {len(videos_data)} YouTube videos about {company}, and I need you to create a summary of the findings.
+                    
+Here are the summaries of the most relevant videos:
+
+{json.dumps(video_summaries, indent=2)}
+
+Please provide:
+1. An overall assessment of the YouTube content
+2. Key insights from the videos
+3. Any potential red flags or concerning issues
+4. A list of the most notable videos and why they matter
+
+Format your response as a JSON with these keys: "overall_assessment", "key_insights", "red_flags", "notable_videos", and "summary"."""
                 
                 input_message = [
                     ("system", system_prompt),
                     ("human", human_prompt)
                 ]
                 
-                # Fixed: Changed model_name to model
-                response = await llm_provider.generate_text(
-                    input_message,
-                    model=self.config.get("models", {}).get("summary")
-                )
+                try:
+                    # Fixed: Changed model_name to model
+                    model = self.config.get("models", {}).get("summary")
+                    self.logger.info(f"Using model {model} for summary generation")
+                    
+                    response = await llm_provider.generate_text(
+                        input_message,
+                        model=model
+                    )
+                    
+                    # Log the raw response for debugging
+                    self.logger.info(f"Received LLM response for summary generation, length: {len(response)}")
+                    self.logger.debug(f"Raw summary response preview: {response[:300]}...")
+                except Exception as e:
+                    self.logger.error(f"Error in LLM text generation for summary: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    raise YouTubeDataError(f"LLM generation error in summary: {str(e)}")
                 
-                summary_result = self._parse_json_response(response, "video summary")
+                if not response:
+                    self.logger.warning("Empty response received from LLM for summary generation")
+                    raise YouTubeDataError("Empty response from LLM for summary generation")
                 
-                self._validate_result(
-                    summary_result,
-                    ["overall_assessment", "key_insights", "red_flags", "notable_videos"],
-                    "video summary"
-                )
+                try:
+                    self.logger.info("Parsing JSON response for summary")
+                    summary_result = self._parse_json_response(response, "video summary")
+                    self.logger.info(f"Successfully parsed JSON for summary with {len(summary_result)} keys")
+                except Exception as e:
+                    self.logger.error(f"Error parsing JSON for summary: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    raise YouTubeDataError(f"JSON parsing error in summary: {str(e)}")
+                
+                try:
+                    self.logger.info("Validating summary result")
+                    self._validate_result(
+                        summary_result,
+                        ["overall_assessment", "key_insights", "red_flags", "notable_videos"],
+                        "video summary"
+                    )
+                    self.logger.info("Summary validation successful")
+                except YouTubeValidationError as e:
+                    self.logger.warning(f"Validation failed for summary: {str(e)}\nAttempting to fix...")
+                    # Try to fix the summary by adding missing fields
+                    if not isinstance(summary_result, dict):
+                        summary_result = {}
+                    
+                    if "overall_assessment" not in summary_result:
+                        summary_result["overall_assessment"] = "Unknown"
+                    if "key_insights" not in summary_result:
+                        summary_result["key_insights"] = []
+                    if "red_flags" not in summary_result:
+                        summary_result["red_flags"] = []
+                    if "notable_videos" not in summary_result:
+                        summary_result["notable_videos"] = []
+                    
+                    self.logger.info("Fixed summary structure with missing fields")
                 
                 summary_result["timestamp"] = datetime.now().isoformat()
                 summary_result["company"] = company
                 summary_result["total_videos_analyzed"] = len(videos_data)
                 
-                self.logger.info(f"Generated video summary for {company} with {len(summary_result.get('red_flags', []))} red flags")
+                num_flags = len(summary_result.get('red_flags', []))
+                self.logger.info(f"Generated video summary for {company} with {num_flags} red flags")
                 
                 return summary_result
                 
             except YouTubeValidationError as e:
-                self.logger.warning(f"Validation error generating video summary: {str(e)}")
+                self.logger.error(f"Validation error generating video summary: {str(e)}\nTraceback: {traceback.format_exc()}")
                 return {
                     "overall_assessment": "Unknown",
                     "key_insights": [f"Error generating summary: {str(e)}"],
@@ -596,24 +771,31 @@ class YouTubeAgent(BaseAgent):
                     "timestamp": datetime.now().isoformat(),
                     "total_videos_analyzed": len(videos_data)
                 }
-            except YouTubeError:
+            except YouTubeError as e:
+                self.logger.error(f"YouTube error generating video summary: {str(e)}\nTraceback: {traceback.format_exc()}")
                 raise
             except Exception as e:
-                self.logger.error(f"Unexpected error generating video summary: {str(e)}")
+                self.logger.error(f"Unexpected error generating video summary: {str(e)}\nTraceback: {traceback.format_exc()}")
                 raise YouTubeDataError(f"Error generating video summary: {str(e)}")
         
         try:
-            return await _generate_with_retry()
+            self.logger.info(f"Starting video summary generation for {company} with retries")
+            result = await _generate_with_retry()
+            self.logger.info(f"Successfully completed video summary generation for {company}")
+            return result
         except RetryError as e:
+            error_details = f"Failed to generate video summary after {self.retry_attempts} attempts"
             if e.last_attempt.exception():
-                self.logger.error(f"Failed to generate video summary after {self.retry_attempts} attempts: {str(e.last_attempt.exception())}")
+                error_details += f": {str(e.last_attempt.exception())}"
+            
+            self.logger.error(f"{error_details}\nTraceback: {traceback.format_exc()}")
             
             return {
                 "overall_assessment": "Error",
                 "key_insights": ["Failed to generate summary after multiple attempts"],
                 "red_flags": ["Summary generation failed"],
                 "notable_videos": [],
-                "summary": f"Analysis of YouTube content for {company} encountered errors.",
+                "summary": f"Analysis of YouTube content for {company} encountered errors after {self.retry_attempts} attempts.",
                 "company": company,
                 "timestamp": datetime.now().isoformat(),
                 "total_videos_analyzed": len(videos_data)
@@ -623,6 +805,9 @@ class YouTubeAgent(BaseAgent):
 
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            self.logger.info("Starting YouTube agent run method")
+            self.logger.debug(f"YouTube agent run call stack:\n{traceback.format_stack()}")
+            
             self._log_start(state)
             
             company = state.get("company", "")
@@ -631,6 +816,7 @@ class YouTubeAgent(BaseAgent):
             
             # Set status early to properly track that we started processing
             state["youtube_agent_status"] = "RUNNING"
+            self.logger.info(f"YouTube agent status set to RUNNING for company: {company}")
             
             if not company:
                 self.logger.error("Company name is missing!")
@@ -827,47 +1013,56 @@ Return your analysis in JSON format with these fields:
                     
                 for video_data, task in transcript_tasks:
                     try:
+                        self.logger.info(f"Awaiting transcript task for video: {video_data.video_id}")
                         transcript = await task
                         if transcript:
                             video_data.transcript = transcript
-                            self.logger.info(f"Got transcript for video: {video_data.video_id}")
+                            self.logger.info(f"Got transcript for video: {video_data.video_id}, length: {len(transcript)}")
                         else:
                             self.logger.warning(f"No transcript available for video: {video_data.video_id}")
                     except Exception as e:
                         error_msg = f"Error getting transcript for video {video_data.video_id}: {str(e)}"
-                        self.logger.error(error_msg)
+                        self.logger.error(f"{error_msg}\nTraceback: {traceback.format_exc()}")
                         transcript_errors.append(error_msg)
                 
+                self.logger.info(f"Completed transcript tasks for batch of {len(batch)} videos, creating analysis tasks")
                 analysis_tasks = []
                 for video_data in batch:
                     if video_data.transcript:
                         try:
+                            self.logger.info(f"Creating analysis task for video: {video_data.video_id}")
                             task = asyncio.create_task(self.analyze_transcript(video_data, company))
                             analysis_tasks.append((video_data, task))
                         except Exception as e:
                             error_msg = f"Error creating analysis task for video {video_data.video_id}: {str(e)}"
-                            self.logger.error(error_msg)
+                            self.logger.error(f"{error_msg}\nTraceback: {traceback.format_exc()}")
                             analysis_errors.append(error_msg)
                 
+                self.logger.info(f"Created {len(analysis_tasks)} analysis tasks, awaiting results")
                 for video_data, task in analysis_tasks:
                     try:
+                        self.logger.info(f"Awaiting analysis task for video: {video_data.video_id}")
                         analysis = await task
                         if analysis:
-                            self.logger.info(f"Analyzed transcript for video: {video_data.video_id} - Relevance: {analysis.get('forensic_relevance', 'unknown')}")
+                            relevance = analysis.get('forensic_relevance', 'unknown')
+                            self.logger.info(f"Successfully analyzed transcript for video: {video_data.video_id} - Relevance: {relevance}")
                         else:
                             self.logger.warning(f"No analysis result for video: {video_data.video_id}")
                     except Exception as e:
                         error_msg = f"Error analyzing transcript for video {video_data.video_id}: {str(e)}"
-                        self.logger.error(error_msg)
+                        self.logger.error(f"{error_msg}\nTraceback: {traceback.format_exc()}")
                         analysis_errors.append(error_msg)
                 
+                self.logger.info(f"Completed analysis tasks for batch, sleeping before next batch")
                 await asyncio.sleep(1)
             
             try:
+                self.logger.info(f"Starting summary generation with {len(videos_data)} videos")
                 videos_with_analysis = [v for v in videos_data if v.forensic_summary is not None]
+                self.logger.info(f"Found {len(videos_with_analysis)}/{len(videos_data)} videos with valid analysis")
                 
                 if not videos_with_analysis:
-                    self.logger.warning(f"No videos with valid analysis available for summary generation")
+                    self.logger.warning(f"No videos with valid analysis available for summary generation for {company}")
                     summary = {
                         "overall_assessment": "Unknown",
                         "key_insights": [f"No video analysis available for {company}"],
@@ -875,19 +1070,40 @@ Return your analysis in JSON format with these fields:
                         "notable_videos": [],
                         "summary": f"No analyzable YouTube content found for {company}."
                     }
+                    self.logger.info(f"Created default empty summary for {company}")
                 else:
-                    summary = await self.generate_video_summary(videos_with_analysis, company)
+                    self.logger.info(f"Generating video summary for {company} with {len(videos_with_analysis)} analyzed videos")
+                    try:
+                        summary = await self.generate_video_summary(videos_with_analysis, company)
+                        self.logger.info(f"Successfully generated summary for {company}")
+                    except Exception as e:
+                        error_details = f"Error in generate_video_summary: {str(e)}\nTraceback: {traceback.format_exc()}"
+                        self.logger.error(error_details)
+                        summary = {
+                            "overall_assessment": "Error",
+                            "key_insights": [f"Error generating summary: {str(e)}"],
+                            "red_flags": ["Summary generation failed with error"],
+                            "notable_videos": [],
+                            "summary": f"Error generating summary for {company}."
+                        }
+                        self.logger.info(f"Created fallback summary after error for {company}")
                 
                 youtube_results["summary"] = summary
                 
                 if "red_flags" in summary and isinstance(summary["red_flags"], list):
                     youtube_results["red_flags"] = summary["red_flags"]
+                    count = len(youtube_results["red_flags"])
+                    self.logger.info(f"Extracted {count} red flags from summary for {company}")
+                else:
+                    self.logger.warning(f"No valid red_flags in summary for {company}")
+                    youtube_results["red_flags"] = []
                     
-                self.logger.info(f"Generated YouTube summary for {company} with {len(youtube_results['red_flags'])} red flags")
+                self.logger.info(f"Completed YouTube summary for {company} with {len(youtube_results['red_flags'])} red flags")
                 
             except Exception as e:
                 error_msg = f"Error generating summary for {company}: {str(e)}"
-                self.logger.error(error_msg)
+                error_details = f"Error details: {traceback.format_exc()}"
+                self.logger.error(f"{error_msg}\n{error_details}")
                 youtube_results["summary"] = {
                     "error": error_msg,
                     "overall_assessment": "Error",
@@ -896,6 +1112,7 @@ Return your analysis in JSON format with these fields:
                     "notable_videos": [],
                     "summary": f"Failed to generate summary for YouTube content about {company}."
                 }
+                self.logger.info(f"Created error summary for {company} after exception")
             
             for video_data in videos_data:
                 video_result = {
@@ -926,15 +1143,21 @@ Return your analysis in JSON format with these fields:
             if state.get("synchronous_pipeline", False):
                 goto = state.get("next_agent", "meta_agent")
                 
-            self._log_completion({**state, "goto": "meta_agent"})
-            return {**state, "goto": "meta_agent"}
+            self.logger.info(f"YouTube agent completing successfully, returning control to {goto}")
+            state["youtube_agent_status"] = "DONE"
+            self._log_completion({**state, "goto": goto})
+            self.logger.info("YouTube agent run method completed")
+            return {**state, "goto": goto}
             
         except Exception as e:
             tb = traceback.format_exc()
             error_msg = f"Unhandled error in youtube_agent run method: {str(e)}\n{tb}"
             self.logger.error(error_msg)
+            self.logger.error(f"Error occurred at:\n{traceback.format_exc()}")
             
+            # Create youtube_results if it doesn't exist yet
             if 'youtube_results' not in state:
+                self.logger.info("Creating empty youtube_results structure due to error")
                 state['youtube_results'] = {
                     "videos": [],
                     "channels": {},
@@ -948,10 +1171,33 @@ Return your analysis in JSON format with these fields:
                     "red_flags": ["YouTube agent failed with error"],
                     "error": error_msg
                 }
+            else:
+                # Update existing results with error information
+                self.logger.info("Updating existing youtube_results with error information")
+                if "summary" not in state['youtube_results']:
+                    state['youtube_results']["summary"] = {}
                 
-            return {
+                state['youtube_results']["summary"]["error"] = error_msg
+                state['youtube_results']["summary"]["overall_assessment"] = "Error"
+                state['youtube_results']["error"] = error_msg
+            
+            # Make sure we have videos list even if empty
+            if "videos" not in state['youtube_results']:
+                state['youtube_results']["videos"] = []
+                
+            self.logger.info("Setting youtube_agent_status to ERROR and returning to meta_agent")
+            
+            error_result = {
                 **state, 
                 "goto": "meta_agent", 
                 "error": error_msg,
-                "youtube_status": "ERROR"
+                "youtube_agent_status": "ERROR"
             }
+            
+            try:
+                self._log_completion(error_result)
+            except Exception as log_error:
+                self.logger.error(f"Error during error logging: {str(log_error)}")
+            
+            self.logger.info("YouTube agent completed with errors")
+            return error_result

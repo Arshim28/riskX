@@ -47,3 +47,207 @@ DEBUG [INFO] 2025-03-27T22:30:42.854515: route_from_meta_agent called, current p
 DEBUG [INFO] 2025-03-27T22:30:42.854547: State goto field: youtube_agent
 DEBUG [INFO] 2025-03-27T22:30:42.854560: Routing to explicit goto: youtube_agent
 DEBUG [INFO] 2025-03-27T22:30:42.855972: Executed node: unknown
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:55] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:57] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d21c6f50 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements: RetryError[<Future at 0x77a4d21c5450 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV: RetryError[<Future at 0x77a4d21c55d0 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d218b550 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:42:59] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d129e6d0 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Unexpected error for URL https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d129eed0 state=finished raised RuntimeError>]
+[2025-03-27 23:42:59] Unable to retrieve data from: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:42:59] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:42:59] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:01] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d204f450 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements: RetryError[<Future at 0x77a4d6708150 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV: RetryError[<Future at 0x77a4d21a5350 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d5383450 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d18b6c50 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:03] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-27 23:43:03] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-27 23:43:03] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-27 23:43:03] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-27 23:43:03] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-27 23:43:03] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:03] Unexpected error for URL https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d18b7d50 state=finished raised RuntimeError>]
+[2025-03-27 23:43:03] Unable to retrieve data from: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:03] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:04] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:06] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d1fb7750 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements: RetryError[<Future at 0x77a4d1fb7f50 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV: RetryError[<Future at 0x77a4d1fb45d0 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d1fb7cd0 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:08] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d1fb64d0 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Unexpected error for URL https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x77a4d1fb67d0 state=finished raised RuntimeError>]
+[2025-03-27 23:43:08] Unable to retrieve data from: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:43:08] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:43:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:08] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:10] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e6405a9b6d0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements: RetryError[<Future at 0x7e6405a9bbd0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV: RetryError[<Future at 0x7e6405a9b1d0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e6405a995d0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:12] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e6405a9b5d0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:12] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Unexpected error for URL https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e6405a9b4d0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:12] Unable to retrieve data from: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:12] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:12] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:14] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e640695edd0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements: RetryError[<Future at 0x7e64355f1750 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/XBRL-announcements?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj&type=announcements
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV: RetryError[<Future at 0x7e64060b6850 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/annual-reports?index=equities&symbol=BAJAJFINSV
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e64060b7550 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/corporate-bussiness-sustainabilitiy?index=equities&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:16] Error fetching data for stream Announcements: Expected list recieved <class 'list'>
+[2025-03-27 23:46:16] Error fetching data for stream AnnXBRL: Expected list recieved <class 'list'>
+[2025-03-27 23:46:16] Error fetching data for stream AnnualReports: Expected list recieved <class 'list'>
+[2025-03-27 23:46:16] Error fetching data for stream BussinessSustainabilitiyReport: Expected list recieved <class 'list'>
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e64060b7ad0 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:16] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:16] Unexpected error for URL https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj: RetryError[<Future at 0x7e64060b7450 state=finished raised RuntimeError>]
+[2025-03-27 23:46:16] Unable to retrieve data from: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=27-03-2024&to_date=27-03-2025&symbol=BAJAJFINSV&issuer=Bajaj
+[2025-03-27 23:46:16] Error fetching data for stream BoardMeetings: Expected list recieved <class 'list'>
+[2025-03-27 23:46:16] Error fetching data for stream CorporateActions: Expected list recieved <class 'list'>
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:17] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
+[2025-03-27 23:46:19] Error refreshing session: Event loop is closed
