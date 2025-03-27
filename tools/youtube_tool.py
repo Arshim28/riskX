@@ -84,7 +84,7 @@ class YoutubeTool(BaseTool):
 
             if transcript and isinstance(transcript, list):
                 if transcript and isinstance(transcript[0], dict):
-                    return " "join(snippet.get('text', '') for snippet in transcript)
+                    return " ".join(snippet.get('text', '') for snippet in transcript)
                 else:
                     return " ".join(getattr(snippet, 'text', '') for snippet in transcript)
 

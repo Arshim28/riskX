@@ -57,8 +57,10 @@ class PromptManager:
                 
                 return (human_template, system_template)
             except Exception as e:
-                logger.debug(f"Error loading template for {agent_name}/{operation}: {e}")
+                logger.warning(f"Error loading template for {agent_name}/{operation}: {e}")
                 return None
+        else:
+            logger.warning(f"Template directory not found for agent: {agent_name}")
         
         return None
     
@@ -66,6 +68,8 @@ class PromptManager:
         templates = self.load_template(params.agent_name, params.operation)
         
         if not templates:
+            # Log at warning level instead of debug
+            logger.warning(f"Templates not found for {params.agent_name}/{params.operation}")
             return None
         
         human_template, system_template = templates
@@ -79,15 +83,40 @@ class PromptManager:
             return None
     
     def get_prompt(self, agent_name: str, operation: str, 
-                  variables: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str]]:
+                  variables: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
+        """
+        Get prompts for the specified agent and operation.
         
+        Args:
+            agent_name: Name of the agent
+            operation: Operation name
+            variables: Template variables
+            
+        Returns:
+            A tuple of (system_prompt, human_prompt). If templates are not found,
+            returns default prompts with a warning.
+        """
         params = PromptParams(
             agent_name=agent_name,
             operation=operation,
             variables=variables or {}
         )
         
-        return self.render_template(params)
+        result = self.render_template(params)
+        
+        if result is None:
+            # Return default prompts instead of None
+            agent_str = f"{agent_name}"
+            operation_str = f"{operation}"
+            
+            # Generate reasonable default prompts
+            default_system = f"You are assisting with a {operation_str} task for {agent_str}."
+            default_human = f"Please perform the {operation_str} operation with the following data: {str(variables)[:100]}..."
+            
+            logger.warning(f"Using default prompts for {agent_name}/{operation} as templates were not found")
+            return (default_system, default_human)
+        
+        return result
 
 
 # Global prompt manager instance

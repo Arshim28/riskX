@@ -1,0 +1,215 @@
+DEBUG [INFO] 2025-03-27T19:38:54.130874: youtube_agent run completed
+DEBUG [INFO] 2025-03-27T19:38:54.130997: process_agent completed for agent: youtube_agent
+DEBUG [INFO] 2025-03-27T19:38:54.131045: process_agent started for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:38:54.131548: Got result for agent: youtube_agent
+DEBUG [INFO] 2025-03-27T19:38:54.131695: Preparing special handling for RAG agent
+DEBUG [INFO] 2025-03-27T19:38:54.131961: Extracted youtube_results
+DEBUG [INFO] 2025-03-27T19:38:54.132114: Calling rag_agent.run with query: Provide key information and risk factors about Bajaj in the Finance industry
+
+DEBUG [INFO] 2025-03-27T19:38:54.136656: RAG agent run completed
+DEBUG [INFO] 2025-03-27T19:38:54.136723: process_agent completed for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:38:54.136760: process_agent started for agent: research_agent
+DEBUG [INFO] 2025-03-27T19:38:54.136878: Got result for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:38:54.136997: Calling research_agent.run
+DEBUG [INFO] 2025-03-27T19:38:54.137037: Getting result for a completed agent
+
+DEBUG: ResearchAgent.run started for company: Bajaj
+DEBUG: Initial state keys: ['company', 'industry', 'meta_iteration', 'user_approved', 'user_feedback', 'requires_user_approval', 'user_approval_type', 'goto', 'error', 'meta_agent_status', 'research_agent_status', 'corporate_agent_status', 'youtube_agent_status', 'analyst_agent_status', 'rag_agent_status', 'writer_agent_status', 'agent_results', 'research_plan', 'search_history', 'search_type', 'return_type', 'event_research_iterations', 'research_results', 'event_metadata', 'corporate_results', 'youtube_results', 'rag_results', 'analysis_results', 'analyst_tasks', 'analyst_task_results', 'quality_assessment', 'analysis_guidance', 'final_report', 'report_sections', 'top_events', 'other_events', 'executive_briefing', 'rag_initialized', 'enable_rag', 'vector_store_dir', 'additional_research_completed', 'final_analysis_completed', 'final_analysis_requested', 'workflow_status', 'execution_mode', 'current_phase', 'research_pool_status', 'corporate_status', 'youtube_status']
+DEBUG: Got LLM provider: <utils.llm_provider.LLMProvider object at 0x773b058f63c0>
+DEBUG: LLM default provider: google
+DEBUG: LLM configured providers: ['google', 'anthropic', 'openai']
+{"timestamp": "2025-03-27T19:38:54.137305", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Starting research agent with state: Bajaj", "path": "", "line": 0, "function": null}
+DEBUG: Current research plan: {'objective': 'Initial investigation into Bajaj', 'key_areas_of_focus': ['Company structure and leadership', 'Recent news related to Bajaj', 'Regulatory compliance', 'Financial reporting', 'Legal issues'], 'query_categories': {'structure': 'Bajaj company structure leadership executives', 'news': 'Bajaj recent news controversy', 'regulatory': 'Bajaj regulatory investigation compliance', 'financial': 'Bajaj financial reporting earnings', 'legal': 'Bajaj lawsuit legal issues'}, 'query_generation_guidelines': 'Focus on factual information about Bajaj with emphasis on potential issues'}
+{"timestamp": "2025-03-27T19:38:54.137547", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Processing research plan: Initial investigation into Bajaj", "path": "", "line": 0, "function": null}
+DEBUG: Generating queries for company: Bajaj, industry: Finance
+{"timestamp": "2025-03-27T19:38:54.137791", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Generating queries based on research plan: Initial investigation into Bajaj", "path": "", "line": 0, "function": null}
+DEBUG: generate_queries called for company: Bajaj, industry: Finance
+DEBUG: Generated company variants: ['Bajaj']
+DEBUG: Got LLM provider: <utils.llm_provider.LLMProvider object at 0x773b058f63c0>
+DEBUG: Got prompt with system length: 2018, human length: 1021
+DEBUG: Using planning model: gemini-2.0-flash
+DEBUG: Calling LLM with model: gemini-2.0-flash
+DEBUG: Using provider: google for model: gemini-2.0-flash
+2025-03-27 19:38:54,147 - llm_provider - INFO - Calling chat-google-generative-ai with model models/gemini-2.0-flash
+Calling chat-google-generative-ai with model models/gemini-2.0-flash
+DEBUG: Got LLM response with length: 867
+DEBUG: Extracted JSON content from code block with ```json
+DEBUG: Parsing JSON content: {
+  "structure": [
+    "Bajaj organizational chart",
+    "Bajaj key management personnel",
+    "Baja...
+DEBUG: Successfully parsed JSON with 5 categories
+DEBUG: Validating category: structure with 5 queries
+DEBUG: Added valid query: Bajaj organizational chart
+DEBUG: Added valid query: Bajaj key management personnel
+DEBUG: Added valid query: Bajaj board of directors
+DEBUG: Added valid query: Bajaj subsidiaries
+DEBUG: Added valid query: Bajaj corporate governance
+DEBUG: Validating category: news with 5 queries
+DEBUG: Added valid query: Bajaj press releases
+DEBUG: Added valid query: Bajaj media coverage
+DEBUG: Added valid query: Bajaj market analysis
+DEBUG: Added valid query: Bajaj industry trends
+DEBUG: Added valid query: Bajaj competitive landscape
+DEBUG: Validating category: regulatory with 5 queries
+DEBUG: Added valid query: Bajaj regulatory filings
+DEBUG: Added valid query: Bajaj compliance reports
+DEBUG: Added valid query: Bajaj SEBI regulations
+DEBUG: Added valid query: Bajaj RBI compliance
+DEBUG: Added valid query: Bajaj audit reports
+DEBUG: Validating category: financial with 5 queries
+DEBUG: Added valid query: Bajaj annual reports
+DEBUG: Added valid query: Bajaj financial statements
+DEBUG: Added valid query: Bajaj revenue growth
+DEBUG: Added valid query: Bajaj profit margins
+DEBUG: Added valid query: Bajaj debt levels
+DEBUG: Validating category: legal with 5 queries
+DEBUG: Added valid query: Bajaj litigation history
+DEBUG: Added valid query: Bajaj legal disputes
+DEBUG: Added valid query: Bajaj intellectual property
+DEBUG: Added valid query: Bajaj contract breaches
+DEBUG: Added valid query: Bajaj settlements
+DEBUG SERPAPI: Config keys: ['api_key']
+DEBUG SERPAPI: API key present: True
+DEBUG SERPAPI: API key first few chars: 00d01...
+DEBUG SERPAPI: Making direct HTTP request to SerpAPI with params: ['query', 'engine', 'location', 'google_domain', 'gl', 'hl', 'num', 'tbm', 'safe', 'api_key', 'q']
+DEBUG SERPAPI: Sending request to SerpAPI with API key: 00d01...
+DEBUG SERPAPI: Got successful response from SerpAPI
+DEBUG SERPAPI: Search status: Success, Search ID: 67e55b3ca603e8bc746e18f4
+DEBUG SERPAPI: Found 15 news results
+{"timestamp": "2025-03-27T19:38:56.079434", "name": "forensic_workflow.search_tool", "level": "INFO", "message": "Search returned 15 results", "path": "", "line": 0, "function": null}
+DEBUG: Search complete with success: True, result count: 15
+DEBUG: Added article: Institutions own 22% of Bajaj Finance Limited (NSE:BAJFINANCE) shares but public companies control 54% of the company
+DEBUG: Added article: Bajaj Chetak tops electric scooter sales chart in February 2025
+DEBUG: Added article: Trade Spotlight: How should you trade Tata Motors, BHEL, Bajaj Finserv, Apollo Tyres, Aarti Pharmalabs,...
+DEBUG: Added article: Bajaj Auto Indian Elliott Wave technical analysis [Video]
+DEBUG: Added article: Bajaj Housing Finance Share Price: What to do after 40% CRASH from peak? Chart analysis
+DEBUG: Added article: Three service sector stocks breaking out on charts now
+DEBUG: Added article: Leadership Team and Board of Directors
+DEBUG: Added article: CA Vacancy at Bajaj Finserv
+DEBUG: Added article: Bajaj Finance Ltd Share Price: Forecast, History, Chart and Target
+DEBUG: Added article: Understanding Form 15G/ 15H: A guide for Bajaj Finserv customers
+DEBUG: Added article: Insulin Efsitora versus Degludec in Type 2 Diabetes without Previous Insulin Treatment
+DEBUG: Added article: Bajaj Auto Limited's (NSE:BAJAJ-AUTO) top owners are public companies with 37% stake, while 22% is held by individual investors
+DEBUG: Added article: [UPDATED] The Motorcycle Industry Will Be Seriously Affected By KTM's Insolvency, Here's Why
+DEBUG: Added article: Bajaj Housing Finance IPO 2024 Highlights: Bajaj Housing Finance stock closed strong; check allotment, listing, GMP, date, time of the issue and trade on day 1
+DEBUG: Added article: Where do Canada’s fruits and vegetables come from? New website maps the flow into provinces
+{"timestamp": "2025-03-27T19:38:57.081779", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Executing search query: Bajaj key management personnel", "path": "", "line": 0, "function": null
+DEBUG: Deduplicated 161 similar articles
+DEBUG: Identified 22 quarterly report articles
+DEBUG: Processing 162 non-quarterly report articles
+{"timestamp": "2025-03-27T19:39:41.325728", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Identified 22 quarterly report articles", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:41.325858", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Processing 162 non-quarterly report articles", "path": "", "line": 0, "function": null}
+DEBUG: Got LLM provider for clustering
+DEBUG: Got article clustering prompt with system length: 1800, human length: 53820
+DEBUG: Calling LLM for clustering with model: gemini-2.0-flash
+DEBUG: Using provider: google for clustering model: gemini-2.0-flash
+2025-03-27 19:39:41,333 - llm_provider - INFO - Calling chat-google-generative-ai with model models/gemini-2.0-flash
+Calling chat-google-generative-ai with model models/gemini-2.0-flash
+DEBUG: Got LLM clustering response with length: 1596
+DEBUG: Extracted JSON content from code block with ```json
+DEBUG: Parsing clustering JSON content: {
+  "Regulatory Fine: IRDAI Penalizes Bajaj Finance for Breaching Regulatory Norms (July 2024) - Med...
+DEBUG: Successfully parsed clustering JSON with 13 clusters
+...
+DEBUG: Validation complete: {'total_events': 14, 'total_articles': 37, 'high_importance_events': 0, 'medium_importance_events': 10, 'low_importance_events': 4, 'articles_per_event': {'Regulatory Fine: IRDAI Penalizes Bajaj Finance for Breaching Regulatory Norms (July 2024) - Medium': 1, "RBI Action: Restrictions on Bajaj Finance's eCOM and Insta EMI Card (November 2023) - Medium": 1, 'RBI Fine: FEMA Violation by Bajaj Auto (November 2024) - Medium': 1, 'GST Tax Demand: Maharashtra GST Demand on Bajaj Auto for Auto Parts Classification Dispute (March 2025) - Medium': 2, 'GST Penalty: Bajaj Auto Faces Penalty and Interest for Differential GST (February 2025) - Medium': 1, 'GST Demand: Bajaj Electricals Receives Demand from GST Authority in Punjab (February 2025) - Medium': 1, "Legal Dispute: LML Parent Files Lawsuit Against Bajaj Auto for Unauthorized Use of 'Freedom' Trademark (October 2024) - Medium": 1, 'Arbitration Award: Delhi High Court Upholds Arbitration Award Against Bajaj Finance over Sale of Security (February 2025) - Medium': 1, 'Insurance Claim Dispute: NCDRC Raps Bajaj Allianz Life Insurance for Unethical Practices (November 2023) - Medium': 1, 'Insurance Claim Dispute: Chandigarh State Commission Holds Bajaj Allianz Liable for Wrongful Repudiation of Insurance Claim (December 2024) - Medium': 2, 'Bajaj Auto: Shares Slump on Festive Sales Caution (October 2024) - Low': 1, 'Bajaj Auto: Shares Tumble After Q2 Earnings (October 2024) - Low': 1, 'Bajaj Finance: Action Against Senior Managers Named in Suicide Note (October 2024) - Low': 1, 'Financial Reporting: Quarterly/Annual Results (Jan 2025) - Low': 22}, 'source_diversity': 0.6486486486486487, 'red_flags': ["Event 'Regulatory Fine: IRDAI Penalizes Bajaj Finance for Breaching Regulatory Norms (July 2024) - Medium' has only one article", "Event 'RBI Action: Restrictions on Bajaj Finance's eCOM and Insta EMI Card (November 2023) - Medium' has only one article", "Event 'RBI Fine: FEMA Violation by Bajaj Auto (November 2024) - Medium' has only one article", "Event 'GST Penalty: Bajaj Auto Faces Penalty and Interest for Differential GST (February 2025) - Medium' has only one article", "Event 'GST Demand: Bajaj Electricals Receives Demand from GST Authority in Punjab (February 2025) - Medium' has only one article", "Event 'Legal Dispute: LML Parent Files Lawsuit Against Bajaj Auto for Unauthorized Use of 'Freedom' Trademark (October 2024) - Medium' has only one article", "Event 'Arbitration Award: Delhi High Court Upholds Arbitration Award Against Bajaj Finance over Sale of Security (February 2025) - Medium' has only one article", "Event 'Insurance Claim Dispute: NCDRC Raps Bajaj Allianz Life Insurance for Unethical Practices (November 2023) - Medium' has only one article", "Event 'Insurance Claim Dispute: Chandigarh State Commission Holds Bajaj Allianz Liable for Wrongful Repudiation of Insurance Claim (December 2024) - Medium' has low source diversity", "Event 'Bajaj Auto: Shares Slump on Festive Sales Caution (October 2024) - Low' has only one article", "Event 'Bajaj Auto: Shares Tumble After Q2 Earnings (October 2024) - Low' has only one article", "Event 'Bajaj Finance: Action Against Senior Managers Named in Suicide Note (October 2024) - Low' has only one article"]}
+DEBUG: Validation results: {'total_events': 14, 'total_articles': 37, 'high_importance_events': 0, 'medium_importance_events': 10, 'low_importance_events': 4, 'articles_per_event': {'Regulatory Fine: IRDAI Penalizes Bajaj Finance for Breaching Regulatory Norms (July 2024) - Medium': 1, "RBI Action: Restrictions on Bajaj Finance's eCOM and Insta EMI Card (November 2023) - Medium": 1, 'RBI Fine: FEMA Violation by Bajaj Auto (November 2024) - Medium': 1, 'GST Tax Demand: Maharashtra GST Demand on Bajaj Auto for Auto Parts Classification Dispute (March 2025) - Medium': 2, 'GST Penalty: Bajaj Auto Faces Penalty and Interest for Differential GST (February 2025) - Medium': 1, 'GST Demand: Bajaj Electricals Receives Demand from GST Authority in Punjab (February 2025) - Medium': 1, "Legal Dispute: LML Parent Files Lawsuit Against Bajaj Auto for Unauthorized Use of 'Freedom' Trademark (October 2024) - Medium": 1, 'Arbitration Award: Delhi High Court Upholds Arbitration Award Against Bajaj Finance over Sale of Security (February 2025) - Medium': 1, 'Insurance Claim Dispute: NCDRC Raps Bajaj Allianz Life Insurance for Unethical Practices (November 2023) - Medium': 1, 'Insurance Claim Dispute: Chandigarh State Commission Holds Bajaj Allianz Liable for Wrongful Repudiation of Insurance Claim (December 2024) - Medium': 2, 'Bajaj Auto: Shares Slump on Festive Sales Caution (October 2024) - Low': 1, 'Bajaj Auto: Shares Tumble After Q2 Earnings (October 2024) - Low': 1, 'Bajaj Finance: Action Against Senior Managers Named in Suicide Note (October 2024) - Low': 1, 'Financial Reporting: Quarterly/Annual Results (Jan 2025) - Low': 22}, 'source_diversity': 0.6486486486486487, 'red_flags': ["Event 'Regulatory Fine: IRDAI Penalizes Bajaj Finance for Breaching Regulatory Norms (July 2024) - Medium' has only one article", "Event 'RBI Action: Restrictions on Bajaj Finance's eCOM and Insta EMI Card (November 2023) - Medium' has only one article", "Event 'RBI Fine: FEMA Violation by Bajaj Auto (November 2024) - Medium' has only one article", "Event 'GST Penalty: Bajaj Auto Faces Penalty and Interest for Differential GST (February 2025) - Medium' has only one article", "Event 'GST Demand: Bajaj Electricals Receives Demand from GST Authority in Punjab (February 2025) - Medium' has only one article", "Event 'Legal Dispute: LML Parent Files Lawsuit Against Bajaj Auto for Unauthorized Use of 'Freedom' Trademark (October 2024) - Medium' has only one article", "Event 'Arbitration Award: Delhi High Court Upholds Arbitration Award Against Bajaj Finance over Sale of Security (February 2025) - Medium' has only one article", "Event 'Insurance Claim Dispute: NCDRC Raps Bajaj Allianz Life Insurance for Unethical Practices (November 2023) - Medium' has only one article", "Event 'Insurance Claim Dispute: Chandigarh State Commission Holds Bajaj Allianz Liable for Wrongful Repudiation of Insurance Claim (December 2024) - Medium' has low source diversity", "Event 'Bajaj Auto: Shares Slump on Festive Sales Caution (October 2024) - Low' has only one article", "Event 'Bajaj Auto: Shares Tumble After Q2 Earnings (October 2024) - Low' has only one article", "Event 'Bajaj Finance: Action Against Senior Managers Named in Suicide Note (October 2024) - Low' has only one article"]}
+{"timestamp": "2025-03-27T19:39:45.243689", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Grouped articles into 14 distinct events", "path": "", "line": 0, "function": null}
+DEBUG: Final research results contain 14 events
+{"timestamp": "2025-03-27T19:39:45.243917", "name": "forensic_workflow.research_agent", "level": "INFO", "message": "Research completed for Bajaj", "path": "", "line": 0, "function": null}
+DEBUG: Research completed for Bajaj
+DEBUG [INFO] 2025-03-27T19:39:45.245095: research_agent run completed
+
+DEBUG [INFO] 2025-03-27T19:39:45.245198: process_agent completed for agent: research_agent
+DEBUG [INFO] 2025-03-27T19:39:45.245378: Got result for agent: research_agent
+DEBUG [INFO] 2025-03-27T19:39:45.245453: Extracted research_results with 14 items
+DEBUG [INFO] 2025-03-27T19:39:45.245476: Extracted event_metadata
+DEBUG [INFO] 2025-03-27T19:39:45.246159: Combining results from all agents
+DEBUG [INFO] 2025-03-27T19:39:45.246271: Updated state with research_results
+DEBUG [INFO] 2025-03-27T19:39:45.246303: Updated state with corporate_results
+DEBUG [INFO] 2025-03-27T19:39:45.246329: Updated state with youtube_results
+DEBUG [INFO] 2025-03-27T19:39:45.246355: Updated state with event_metadata
+DEBUG [INFO] 2025-03-27T19:39:45.246376: ResearchPool.run completed, returning to meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.246457: agent.run completed for: research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.246559: Agent research_pool completed in separate thread
+DEBUG [INFO] 2025-03-27T19:39:45.246583: Closing event loop for research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.246768: Got result from executor for research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.249766: Executed node: unknown
+DEBUG [INFO] 2025-03-27T19:39:45.249766: Executed node: unknown
+{"timestamp": "2025-03-27T19:39:45.249894", "name": "forensic_workflow.forensic_workflow", "level": "INFO", "message": "Executed node: unknown", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.250539: run_agent_sync called for: meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.250700: Current asyncio task: <Task pending name='Task-1' coro=<create_and_run_workflow() running at /home/satyam/Desktop/riskX/langgraph_workflow.py:1429> cb=[_run_until_complete_cb() at /home/satyam/.local/share/uv/python/cpython-3.13.2-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py:181]>
+DEBUG [INFO] 2025-03-27T19:39:45.250719: Already in async context for: meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.250729: Running meta_agent in a separate thread to avoid deadlock
+DEBUG [INFO] 2025-03-27T19:39:45.250741: Creating ThreadPoolExecutor for meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.250824: Submitting meta_agent to executor
+DEBUG [INFO] 2025-03-27T19:39:45.251260: Starting separate thread for meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.251791: Running meta_agent in separate event loop
+DEBUG [INFO] 2025-03-27T19:39:45.251922: run_agent async function started for: meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.251942: Executing agent.run for: meta_agent
+{, \"meta_iteration\": 1, \"user_approved\": false, \"user_feedback\": null, \"requires_user_approval\": false, \"user_approval_type\": null, \"error\": null, \"meta_agent_status\": null, \"research_agent_status\": \"DONE\", \"corporate_agent_status\": \"DONE\", \"youtube_agent_status\": \"DONE\", \"analyst_agent_status\": null, \"rag_agent_status\": \"DONE\", \"writer_agent_status\": null, \"agent_results\": {}, \"research_plan\": [{\"objective\": \"Initial investigation into Bajaj\", \"key_areas...", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.259704", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Starting iteration 2 for Bajaj", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.259920", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent research_agent status: RUNNING -> DONE", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.260080", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent youtube_agent status: PENDING -> DONE", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.260232", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent corporate_agent status: PENDING -> DONE", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.260380", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent rag_agent status: PENDING -> DONE", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.260936", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding snapshot_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+/home/satyam/Desktop/riskX/tools/postgres_tool.py:538: RuntimeWarning: coroutine 'Connection._cancel' was never awaited
+  self.logger.warning(f"Error adding snapshot_data column: {str(column_err)}")
+Object allocated at (most recent call last):
+  File "/home/satyam/Desktop/riskX/.venv/lib/python3.13/site-packages/asyncpg/connection.py", lineno 1673
+    self._cancellations.add(self._loop.create_task(self._cancel(waiter)))
+{"timestamp": "2025-03-27T19:39:45.265464", "name": "forensic_workflow.postgres_tool", "level": "ERROR", "message": "Error executing query: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.267158", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding status_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.268371", "name": "forensic_workflow.postgres_tool", "level": "ERROR", "message": "Error executing query: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.269927", "name": "forensic_workflow.postgres_tool", "level": "WARNING", "message": "Error adding status_data column: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.271173", "name": "forensic_workflow.postgres_tool", "level": "ERROR", "message": "Error executing query: Event loop is closed", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.271493", "name": "forensic_workflow.meta_agent", "level": "DEBUG", "message": "Saved workflow status to database for Bajaj", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.271754", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Updated agent corporate_agent status: DONE -> RUNNING", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.271885", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Next agent to run: corporate_agent", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.272026", "name": "forensic_workflow.meta_agent", "level": "INFO", "message": "Directing workflow to corporate_agent", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.272151: agent.run completed for: meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.272151: agent.run completed for: meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.272226: Agent meta_agent completed in separate thread
+DEBUG [INFO] 2025-03-27T19:39:45.272240: Closing event loop for meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.272418: Got result from executor for meta_agent
+DEBUG [INFO] 2025-03-27T19:39:45.273959: route_from_meta_agent called, current phase: RESEARCH
+DEBUG [INFO] 2025-03-27T19:39:45.273995: State goto field: corporate_agent
+DEBUG [INFO] 2025-03-27T19:39:45.274008: Routing to research_pool based on RESEARCH phase
+DEBUG [INFO] 2025-03-27T19:39:45.275216: Executed node: unknown
+{"timestamp": "2025-03-27T19:39:45.275249", "name": "forensic_workflow.forensic_workflow", "level": "INFO", "message": "Executed node: unknown", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.275796: run_agent_sync called for: research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.275880: Current asyncio task: <Task pending name='Task-1' coro=<create_and_run_workflow() running at /home/satyam/Desktop/riskX/langgraph_workflow.py:1429> cb=[_run_until_complete_cb() at /home/satyam/.local/share/uv/python/cpython-3.13.2-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py:181]>
+DEBUG [INFO] 2025-03-27T19:39:45.275895: Already in async context for: research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.275905: Running research_pool in a separate thread to avoid deadlock
+DEBUG [INFO] 2025-03-27T19:39:45.275916: Creating ThreadPoolExecutor for research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.275957: Submitting research_pool to executor
+DEBUG [INFO] 2025-03-27T19:39:45.276267: Starting separate thread for research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.276659: Running research_pool in separate event loop
+DEBUG [INFO] 2025-03-27T19:39:45.276813: run_agent async function started for: research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.276858: Set research_pool_status=RUNNING
+DEBUG [INFO] 2025-03-27T19:39:45.276891: Executing agent.run for: research_pool
+DEBUG [INFO] 2025-03-27T19:39:45.276919: ResearchPool.run started for company: Bajaj
+{"timestamp": "2025-03-27T19:39:45.282262", "name": "forensic_workflow.research_pool", "level": "INFO", "message": "Starting research pool for Bajaj", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.282389: RAG is enabled: True
+DEBUG [INFO] 2025-03-27T19:39:45.282409: Added rag_agent to agents_to_run
+DEBUG [INFO] 2025-03-27T19:39:45.282420: Added research_agent to agents_to_run
+DEBUG [INFO] 2025-03-27T19:39:45.282440: Running 2 research agents concurrently
+{"timestamp": "2025-03-27T19:39:45.282465", "name": "forensic_workflow.research_pool", "level": "INFO", "message": "Running 2 research agents concurrently", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.282582: Creating ThreadPoolExecutor with max_workers=1
+DEBUG [INFO] 2025-03-27T19:39:45.282648: Submitting 2 agents to thread pool
+DEBUG [INFO] 2025-03-27T19:39:45.283030: process_agent started for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:39:45.283184: Processing results as agents complete
+DEBUG [INFO] 2025-03-27T19:39:45.283367: Getting result for a completed agent
+DEBUG [INFO] 2025-03-27T19:39:45.283537: Preparing special handling for RAG agent
+DEBUG [INFO] 2025-03-27T19:39:45.284103: Calling rag_agent.run with query: Provide key information and risk factors about Bajaj in the Finance industry
+{"timestamp": "2025-03-27T19:39:45.290120", "name": "forensic_workflow.rag_agent", "level": "INFO", "message": "Starting rag_agent for Bajaj with state: {\"company\": \"Bajaj\", \"industry\": \"Finance\", \"meta_iteration\": 2, \"user_approved\": false, \"user_feedback\": null, \"requires_user_approval\": false, \"user_approval_type\": null, \"error\": null, \"meta_agent_status\": null, \"research_agent_status\": \"DONE\", \"corporate_agent_status\": \"DONE\", \"youtube_agent_status\": \"DONE\", \"analyst_agent_status\": null, \"rag_agent_status\": \"DONE\", \"writer_agent_status\": null, \"agent_results\": {}, \"research_plan\": [{\"objective\": \"Initial investigation into Bajaj\", \"key_areas...", "path": "", "line": 0, "function": null}
+{"timestamp": "2025-03-27T19:39:45.290407", "name": "forensic_workflow.rag_agent", "level": "INFO", "message": "Completed rag_agent for Bajaj in 0.00ms with updates: \"corporate_agent\"", "path": "", "line": 0, "function": null}
+DEBUG [INFO] 2025-03-27T19:39:45.290580: RAG agent run completed
+DEBUG [INFO] 2025-03-27T19:39:45.290658: process_agent completed for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:39:45.290701: process_agent started for agent: research_agent
+DEBUG [INFO] 2025-03-27T19:39:45.290857: Got result for agent: rag_agent
+DEBUG [INFO] 2025-03-27T19:39:45.290928: Getting result for a completed agent
+DEBUG [INFO] 2025-03-27T19:39:45.291075: Calling research_agent.run
+
